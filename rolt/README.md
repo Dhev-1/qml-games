@@ -133,8 +133,18 @@ without calling anything. It is a no-op here regardless.)
 ## Theming
 
 Everything visual is in the `theme` block at the top of `roulette.qml` — colors,
-felt, wheel, font. It ships matching your bar's palette (`#16161e` base,
-JetBrainsMono Nerd Font).
+felt, wheel, fonts. It ships matching your bar's `#16161e` base.
+
+Two faces, split by job:
+
+| | | |
+|---|---|---|
+| `font` | Open Sans | every word — labels, messages, buttons, outside bets |
+| `display` | DejaVu Sans | every figure — the winning number, the bank, the meters, the chips, the felt cells, the wheel |
+
+The numbers get the heaviest sans available, because one face has to carry both
+10px wheel pockets and the 46px result badge. It also keeps `1` and `7` apart,
+which a geometric face does not, and "17" has to be readable at 13px in a cell.
 
 The felt's proportions live in `geo` just below it. Changing a cell size moves
 the bet spots with it, because both come off the same numbers.

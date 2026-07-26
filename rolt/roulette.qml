@@ -40,7 +40,15 @@ ShellRoot {
         readonly property int    pad:      20
         readonly property int    gap:      10
         readonly property int    radius:   10
-        readonly property string font:     "JetBrainsMono Nerd Font"
+
+        //  Two faces, split by job. `display` is for figures only — the winning
+        //  number, the bank, the chips, the felt, the wheel. It is the heaviest
+        //  sans on the box, which is what these need: the same face has to hold
+        //  up at 10px in a wheel pocket and at 46px in the result badge, and it
+        //  keeps 1 and 7 apart, which a geometric face does not. `font` is for
+        //  every word in the widget.
+        readonly property string font:     "Open Sans"
+        readonly property string display:  "DejaVu Sans"
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -496,8 +504,12 @@ ShellRoot {
     readonly property real minFree: 2.0
     readonly property real maxFree: 2.7
 
-    readonly property real trackR:  118      // ball on the outer track
-    readonly property real pocketR: 92       // ball seated in a pocket
+    //  Both are absolute pixels in a 288px wheel, so they track the pocket band
+    //  in the Wheel component: the ball flies just inside the rim and seats at
+    //  the middle of a pocket. Move one without the other and the ball rides
+    //  over the hub or off the edge.
+    readonly property real trackR:  134      // ball on the outer track
+    readonly property real pocketR: 112      // ball seated in a pocket
 
     readonly property real scatAmp:  16      // scatter, degrees
     readonly property real scatFrom: 0.62    // when it starts, as a fraction
@@ -666,28 +678,28 @@ ShellRoot {
         implicitWidth: dim
         implicitHeight: dim
 
+        //  Proportioned off a real wheel diagram: a thin outer edge, a wide
+        //  band of pockets, and a hollow centre a bit over half the outer
+        //  radius. What this replaces spent 30 of its 144px on rim and ball
+        //  track, leaving the colour band a 36px strip; it is 67px now.
         readonly property real rOuter: dim / 2
-        readonly property real rTrack: dim / 2 - 14
-        readonly property real rPocketOut: dim / 2 - 30
-        readonly property real rPocketIn:  dim / 2 - 66
-        readonly property real rLabel:     dim / 2 - 40
+        readonly property real rPocketOut: dim / 2 - 4
+        readonly property real rPocketIn:  rPocketOut * 0.60
+        //  Centred in the band, so the clearance to the inner and outer frets
+        //  is equal.
+        readonly property real rLabel:     (rPocketOut + rPocketIn) / 2
 
         // ── rim ──
+        //  A hairline. No rim disc and no separate ball track any more — the
+        //  ball rides the outer end of the pockets, which is where it ends up
+        //  on a real wheel once it has dropped off the track anyway.
         Rectangle {
             anchors.fill: parent
             radius: width / 2
-            color: root.theme.wheelRim
+            color: "transparent"
             border.width: 2
-            border.color: Qt.lighter(root.theme.wheelRim, 1.5)
+            border.color: root.theme.raised
         }
-        Rectangle {
-            anchors.centerIn: parent
-            width: wh.rTrack * 2
-            height: width
-            radius: width / 2
-            color: Qt.darker(root.theme.wheelRim, 1.35)
-        }
-
         // ── the wheel proper: painted once, spun by the scene graph ──
         Item {
             id: turning
@@ -722,17 +734,15 @@ ShellRoot {
                     // hub
                     ctx.beginPath();
                     ctx.arc(cx, cy, wh.rPocketIn, 0, Math.PI * 2);
-                    ctx.fillStyle = root.theme.wheelHub;
+                    //  Hollow, like the reference — the panel showing through
+                    //  rather than a disc of woodgrain. Only the fret ring
+                    //  marks where the pockets stop. The turret that used to
+                    //  sit in the middle is gone with it.
+                    ctx.fillStyle = root.theme.bg;
                     ctx.fill();
-                    ctx.strokeStyle = Qt.lighter(root.theme.wheelRim, 1.6);
+                    ctx.strokeStyle = root.theme.fret;
                     ctx.lineWidth = 2;
                     ctx.stroke();
-
-                    // turret
-                    ctx.beginPath();
-                    ctx.arc(cx, cy, wh.rPocketIn * 0.34, 0, Math.PI * 2);
-                    ctx.fillStyle = Qt.lighter(root.theme.wheelRim, 1.3);
-                    ctx.fill();
                 }
                 Component.onCompleted: requestPaint()
             }
@@ -748,8 +758,8 @@ ShellRoot {
                     y: turning.height / 2 + Math.sin(a) * wh.rLabel - height / 2
                     rotation: index * root.pocketArc
                     text: root.wheelOrder[index]
-                    font.family: root.theme.font
-                    font.pixelSize: 11
+                    font.family: root.theme.display
+                    font.pixelSize: 10
                     font.bold: true
                     color: root.theme.fg
                 }
@@ -981,21 +991,46 @@ ShellRoot {
                                 font.letterSpacing: 2
                                 color: root.theme.fg
                             }
+                        }
+
+                        // ── bank ──
+                        //  Above the number rather than down in the meters: it
+                        //  is the figure you actually watch, and the one that
+                        //  decides whether the next bet is even possible.
+                        Rectangle {
+                            width: parent.width
+                            height: 40
+                            radius: 8
+                            color: root.theme.surface
+                            border.width: 1
+                            border.color: root.theme.raised
+
                             Text {
-                                anchors.right: parent.right
+                                anchors.left: parent.left
+                                anchors.leftMargin: 12
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: "EUROPEAN  ·  SINGLE ZERO"
+                                text: "CREDITS"
                                 font.family: root.theme.font
                                 font.pixelSize: 10
-                                font.letterSpacing: 1
+                                font.letterSpacing: 1.5
                                 color: root.theme.muted
+                            }
+                            Text {
+                                anchors.right: parent.right
+                                anchors.rightMargin: 12
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: Math.round(root.creditsShown)
+                                font.family: root.theme.display
+                                font.pixelSize: 22
+                                font.bold: true
+                                color: root.theme.green
                             }
                         }
 
                         // ── result badge ──
                         Rectangle {
                             width: parent.width
-                            height: 96
+                            height: 82
                             radius: 10
                             color: root.shownNumber < 0 ? root.theme.surface
                                  : root.shownNumber === 0 ? root.theme.numGreen
@@ -1009,8 +1044,8 @@ ShellRoot {
                             Text {
                                 anchors.centerIn: parent
                                 text: root.shownNumber < 0 ? "—" : root.shownNumber
-                                font.family: root.theme.font
-                                font.pixelSize: 48
+                                font.family: root.theme.display
+                                font.pixelSize: 46
                                 font.bold: true
                                 color: root.shownNumber < 0 ? root.theme.inactive
                                                             : root.theme.fg
@@ -1027,7 +1062,7 @@ ShellRoot {
                         // ── message ──
                         Rectangle {
                             width: parent.width
-                            height: 30
+                            height: 28
                             radius: 6
                             color: root.theme.surface
                             Text {
@@ -1048,20 +1083,24 @@ ShellRoot {
                             width: parent.width
                             spacing: root.theme.gap
                             Repeater {
+                                //  CREDITS lives in its own bar above the
+                                //  number now, so this is the pair that only
+                                //  matter while a round is in play.
+                                //  One tint across both. Green stays the bank's
+                                //  alone and gold stays the win message's, so
+                                //  colour in this widget means something rather
+                                //  than just decorating each tile differently.
                                 model: [
-                                    { label: "CREDITS",
-                                      value: Math.round(root.creditsShown),
-                                      tint: root.theme.green },
                                     { label: "WAGERED", value: root.wagered,
                                       tint: root.theme.blue },
                                     { label: "WIN",     value: root.lastWin,
-                                      tint: root.theme.gold }
+                                      tint: root.theme.blue }
                                 ]
                                 Rectangle {
                                     required property var modelData
                                     width: (frame.width - root.theme.pad * 2
-                                            - 288 - 16 - root.theme.gap * 2) / 3
-                                    height: 44
+                                            - 288 - 16 - root.theme.gap) / 2
+                                    height: 42
                                     radius: 8
                                     color: root.theme.surface
                                     border.width: 1
@@ -1080,7 +1119,7 @@ ShellRoot {
                                         Text {
                                             anchors.horizontalCenter: parent.horizontalCenter
                                             text: modelData.value
-                                            font.family: root.theme.font
+                                            font.family: root.theme.display
                                             font.pixelSize: 18
                                             font.bold: true
                                             color: modelData.tint
@@ -1108,7 +1147,7 @@ ShellRoot {
                                     Text {
                                         anchors.centerIn: parent
                                         text: modelData
-                                        font.family: root.theme.font
+                                        font.family: root.theme.display
                                         font.pixelSize: 10
                                         font.bold: true
                                         color: root.theme.fg
@@ -1158,14 +1197,32 @@ ShellRoot {
                             border.width: 1
                             border.color: root.theme.feltLine
 
+                            //  n >= 0 is a numbered cell, n < 0 an outside bet
+                            //  whose label is a word ("EVEN", "1st 12") — so the
+                            //  same test picks both the size and the face.
+                            //
+                            //  The zero used to be turned on its side to fit a
+                            //  tall thin cell. It reads as a mistake rather than
+                            //  as a design, and "0" is narrow enough to sit
+                            //  upright in 44px regardless.
+                            //  A chip on an outside bet lands on a word, and a
+                            //  chip over "1st 12" or "BLACK" reads as neither.
+                            //  The chip already says what is staked and where,
+                            //  so the label steps aside while it is there and
+                            //  comes back when the felt clears. Numbered cells
+                            //  keep theirs: a chip on a number covers a digit or
+                            //  two, which is legible, and losing the number
+                            //  would cost you the grid.
                             Text {
                                 anchors.centerIn: parent
                                 text: modelData.label
-                                font.family: root.theme.font
+                                visible: modelData.n >= 0
+                                         || !(root.betMap[root.cellBetId(modelData)] > 0)
+                                font.family: modelData.n >= 0 ? root.theme.display
+                                                              : root.theme.font
                                 font.pixelSize: modelData.n >= 0 ? 13 : 11
                                 font.bold: true
                                 color: root.theme.fg
-                                rotation: modelData.n === 0 ? -90 : 0
                             }
 
                             // hover wash
@@ -1237,7 +1294,7 @@ ShellRoot {
                                 Text {
                                     anchors.centerIn: parent
                                     text: chip.amount
-                                    font.family: root.theme.font
+                                    font.family: root.theme.display
                                     font.pixelSize: chip.amount > 99 ? 9 : 11
                                     font.bold: true
                                     color: root.chipInk[chip.tier]
@@ -1296,7 +1353,7 @@ ShellRoot {
                             Text {
                                 anchors.centerIn: parent
                                 text: root.chips[index]
-                                font.family: root.theme.font
+                                font.family: root.theme.display
                                 font.pixelSize: 15
                                 font.bold: true
                                 color: root.chipInk[index]
@@ -1310,19 +1367,6 @@ ShellRoot {
                         }
                     }
 
-                    Item {
-                        width: parent.width - 4 * 52 - root.theme.gap * 4
-                        height: 52
-                        Text {
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: "1-4 chip  ·  space spin  ·  u undo  ·  "
-                                  + "c clear  ·  r rebet"
-                            font.family: root.theme.font
-                            font.pixelSize: 10
-                            color: root.theme.inactive
-                        }
-                    }
                 }
 
                 // ═══ controls ═══
