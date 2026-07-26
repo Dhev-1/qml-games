@@ -292,12 +292,31 @@ ShellRoot {
     // ═══════════════════════════════════════════════════════════
     //  GAME STATE
     // ═══════════════════════════════════════════════════════════
+    //  Same three palettes as bjak, in the same order, so a 25 is the same green
+    //  clay in both games. `chipSpot` is the colour of the edge spots and the
+    //  ring — white on everything except the white chip, which takes navy,
+    //  because white spots on a white chip are no spots.
     readonly property var chips: [1, 5, 25, 100]
     readonly property var chipColor: ["#e8e8ee", "#d3283a", "#2f9e5a", "#22222c"]
+    readonly property var chipSpot:  ["#2b3a63", "#ffffff", "#ffffff", "#ffffff"]
     readonly property var chipInk:   ["#16161e", "#ffffff", "#ffffff", "#ffffff"]
+
+    //  Which chip a disc is drawn as: the largest denomination it covers, so a
+    //  stack of 30 wears the 25's green.
+    function chipTier(amount) {
+        let k = 0;
+        for (let i = 0; i < root.chips.length; i++)
+            if (amount >= root.chips[i]) k = i;
+        return k;
+    }
 
     property int  credits:   200
     property int  chipIndex: 1
+
+    //  How many times the bank has been emptied and refilled. A lifetime tally,
+    //  not a per-session one — it rides in the state file next to the bank,
+    //  which is the whole point of it.
+    property int  losses:    0
 
     //  ── the bank on disk ───────────────────────────────────────
     //  Closing quits the process, so without this the bank would reset to 200
@@ -337,6 +356,7 @@ ShellRoot {
         JsonAdapter {
             id: bank
             property int credits: 200
+            property int losses:  0
         }
     }
 
@@ -355,6 +375,7 @@ ShellRoot {
         //  the file. Caught by relaunching after a loss, not by the tests.
         bankFile.text();
         root.credits = bank.credits;
+        root.losses  = bank.losses;
         root.topUp();
 
         //  Normalise on the way in. An unreadable file falls back to 200 above
@@ -364,6 +385,10 @@ ShellRoot {
     }
     onCreditsChanged: {
         bank.credits = root.credits;
+        bankFile.writeAdapter();
+    }
+    onLossesChanged: {
+        bank.losses = root.losses;
         bankFile.writeAdapter();
     }
 
@@ -378,6 +403,7 @@ ShellRoot {
     function topUp(): bool {
         if (root.credits > 0) return false;
         root.credits = 200;
+        root.losses += 1;
         root.message = "BANK EMPTY — BACK TO 200";
         return true;
     }
@@ -539,7 +565,10 @@ ShellRoot {
 
         root.winNumber = Math.floor(Math.random() * 37);
         root.phase = "spinning";
-        root.message = "NO MORE BETS";
+        //  Nothing on the message line while the wheel is turning — the wheel
+        //  is already saying it, and a caption repeating the obvious is the
+        //  first thing you stop reading.
+        root.message = "";
         root.lastWin = 0;
         root.shownNumber = -1;
 
@@ -766,6 +795,43 @@ ShellRoot {
             }
         }
 
+        // ── result, in the hollow centre ──
+        //  Outside `turning`, so it stays upright while the wheel spins. The
+        //  disc is comfortably inside rPocketIn, so it never touches a pocket
+        //  or the ball, which flies well outside it.
+        Rectangle {
+            anchors.centerIn: parent
+            width: wh.rPocketIn * 1.5
+            height: width
+            radius: width / 2
+
+            color: root.shownNumber < 0 ? "transparent"
+                 : root.shownNumber === 0 ? root.theme.numGreen
+                 : root.isRed(root.shownNumber) ? root.theme.numRed
+                                                : root.theme.numBlack
+            border.width: root.shownNumber < 0 ? 0 : 2
+            border.color: root.theme.raised
+
+            Behavior on color { ColorAnimation { duration: 200 } }
+
+            Text {
+                anchors.centerIn: parent
+                text: root.shownNumber < 0 ? "—" : root.shownNumber
+                font.family: root.theme.display
+                font.pixelSize: 52
+                font.bold: true
+                color: root.shownNumber < 0 ? root.theme.inactive
+                                            : root.theme.fg
+            }
+
+            SequentialAnimation on opacity {
+                running: root.phase === "payout"
+                loops: 4
+                NumberAnimation { to: 0.55; duration: 220 }
+                NumberAnimation { to: 1.0;  duration: 220 }
+            }
+        }
+
         // ── ball ──
         Rectangle {
             width: 11
@@ -790,6 +856,102 @@ ShellRoot {
             height: 14
             radius: 1.5
             color: root.theme.gold
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  CHIP
+    //
+    //  Ported from bjak/blackjack.qml so both games hand you the same object: a
+    //  coloured clay body, eight spots cut into the rim, the ring those spots
+    //  stop at, a dark edge, and the denomination in the middle. Drawn rather
+    //  than drawn-on — every measurement is a fraction of the radius, so the
+    //  26px disc on the felt and the 52px one in the rack are one drawing at
+    //  two sizes, not a scaled bitmap.
+    // ═══════════════════════════════════════════════════════════
+    component Chip: Item {
+        id: chip
+        property int   amount: 0
+        property real  dim: 26
+        //  Set to pick a chip out. It replaces the dark edge instead of adding
+        //  a ring outside it, so a highlighted chip occupies exactly the room an
+        //  ordinary one does and nothing shifts when the selection moves.
+        property color highlight: "transparent"
+
+        readonly property int   tier: root.chipTier(amount)
+        readonly property color body: root.chipColor[tier]
+        readonly property color spot: root.chipSpot[tier]
+        readonly property bool  lit:  chip.highlight.a > 0
+
+        width: dim
+        height: dim
+        visible: amount > 0
+
+        Canvas {
+            id: clay
+            anchors.fill: parent
+
+            onPaint: {
+                const ctx = getContext("2d");
+                ctx.reset();
+
+                const r = width / 2, cx = r, cy = r;
+                const edge = Math.max(1.25, r * 0.09);
+                const rim  = r - edge / 2;          // the body, inside the edge
+                const stop = rim * 0.70;            // how deep the spots cut
+                const ring = rim * 0.66;
+
+                ctx.beginPath();
+                ctx.arc(cx, cy, rim, 0, 2 * Math.PI);
+                ctx.fillStyle = chip.body;
+                ctx.fill();
+
+                //  Eight spots on 45° centres. Each is the wedge between the
+                //  rim and `stop`, which is why they read as cut out of the
+                //  edge rather than painted onto it.
+                const half = 9 * Math.PI / 180;
+                for (let i = 0; i < 8; i++) {
+                    const a = i * Math.PI / 4;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, rim,  a - half, a + half, false);
+                    ctx.arc(cx, cy, stop, a + half, a - half, true);
+                    ctx.closePath();
+                    ctx.fillStyle = chip.spot;
+                    ctx.fill();
+                }
+
+                ctx.beginPath();
+                ctx.arc(cx, cy, ring, 0, 2 * Math.PI);
+                ctx.strokeStyle = chip.spot;
+                ctx.lineWidth = Math.max(1, r * 0.055);
+                ctx.stroke();
+
+                //  A fine line reads as picked out; a heavy one reads as a
+                //  different chip, so the highlight goes on thinner than the
+                //  dark edge it replaces.
+                ctx.beginPath();
+                ctx.arc(cx, cy, rim, 0, 2 * Math.PI);
+                ctx.strokeStyle = chip.lit ? chip.highlight
+                                           : Qt.rgba(0, 0, 0, 0.55);
+                ctx.lineWidth = chip.lit ? Math.max(1, edge * 0.6) : edge;
+                ctx.stroke();
+            }
+        }
+
+        //  Canvas repaints on resize but not on a colour change, and the tier
+        //  moves under a growing stack.
+        onTierChanged:      clay.requestPaint()
+        onHighlightChanged: clay.requestPaint()
+
+        Text {
+            anchors.centerIn: parent
+            text: chip.amount
+            font.family: root.theme.display
+            //  Sized to the face inside the ring, not to the whole chip, so
+            //  "100" stays within the ring instead of running under the spots.
+            font.pixelSize: chip.amount > 99 ? chip.dim * 0.33 : chip.dim * 0.42
+            font.bold: true
+            color: root.chipInk[chip.tier]
         }
     }
 
@@ -897,6 +1059,7 @@ ShellRoot {
                 //  reply at all means not.
                 visible: true,
                 credits: root.credits,
+                losses: root.losses,
                 wagered: root.wagered,
                 chip: root.chips[root.chipIndex],
                 phase: root.phase,
@@ -974,9 +1137,14 @@ ShellRoot {
 
                     Wheel { dim: 288 }
 
+                    //  Centred against the wheel rather than top-aligned. With
+                    //  the result badge gone this column is a good deal shorter
+                    //  than the 288px wheel beside it, and hanging it from the
+                    //  top just puts all the slack in one lump at the bottom.
                     Column {
+                        anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - 288 - 16
-                        spacing: 8
+                        spacing: 14
 
                         Item {
                             width: parent.width
@@ -991,6 +1159,35 @@ ShellRoot {
                                 font.letterSpacing: 2
                                 color: root.theme.fg
                             }
+
+                            //  Times the bank has been emptied. Sits in the
+                            //  header rather than beside WAGERED and WIN
+                            //  because those two reset every round and this
+                            //  one never does — and it is the one number here
+                            //  that outlives the window.
+                            Row {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 6
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "REBUYS"
+                                    font.family: root.theme.font
+                                    font.pixelSize: 10
+                                    font.letterSpacing: 1.5
+                                    color: root.theme.muted
+                                }
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: root.losses
+                                    font.family: root.theme.display
+                                    font.pixelSize: 15
+                                    font.bold: true
+                                    color: root.losses > 0 ? root.theme.numRed
+                                                           : root.theme.inactive
+                                }
+                            }
                         }
 
                         // ── bank ──
@@ -999,7 +1196,7 @@ ShellRoot {
                         //  decides whether the next bet is even possible.
                         Rectangle {
                             width: parent.width
-                            height: 40
+                            height: 48
                             radius: 8
                             color: root.theme.surface
                             border.width: 1
@@ -1027,42 +1224,13 @@ ShellRoot {
                             }
                         }
 
-                        // ── result badge ──
-                        Rectangle {
-                            width: parent.width
-                            height: 82
-                            radius: 10
-                            color: root.shownNumber < 0 ? root.theme.surface
-                                 : root.shownNumber === 0 ? root.theme.numGreen
-                                 : root.isRed(root.shownNumber) ? root.theme.numRed
-                                                                : root.theme.numBlack
-                            border.width: 1
-                            border.color: root.theme.raised
-
-                            Behavior on color { ColorAnimation { duration: 200 } }
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: root.shownNumber < 0 ? "—" : root.shownNumber
-                                font.family: root.theme.display
-                                font.pixelSize: 46
-                                font.bold: true
-                                color: root.shownNumber < 0 ? root.theme.inactive
-                                                            : root.theme.fg
-                            }
-
-                            SequentialAnimation on opacity {
-                                running: root.phase === "payout"
-                                loops: 4
-                                NumberAnimation { to: 0.55; duration: 220 }
-                                NumberAnimation { to: 1.0;  duration: 220 }
-                            }
-                        }
+                        //  The result used to be a badge here. It lives in the
+                        //  wheel's hollow centre now — see the Wheel component.
 
                         // ── message ──
                         Rectangle {
                             width: parent.width
-                            height: 28
+                            height: 34
                             radius: 6
                             color: root.theme.surface
                             Text {
@@ -1100,7 +1268,7 @@ ShellRoot {
                                     required property var modelData
                                     width: (frame.width - root.theme.pad * 2
                                             - 288 - 16 - root.theme.gap) / 2
-                                    height: 42
+                                    height: 50
                                     radius: 8
                                     color: root.theme.surface
                                     border.width: 1
@@ -1190,6 +1358,7 @@ ShellRoot {
                             y: modelData.y
                             width: modelData.w
                             height: modelData.h
+                            radius: 5
                             color: modelData.tone === "red"   ? root.theme.numRed
                                  : modelData.tone === "black" ? root.theme.numBlack
                                  : modelData.tone === "green" ? root.theme.numGreen
@@ -1265,15 +1434,6 @@ ShellRoot {
                             //  during the spin every chip is still live.
                             readonly property bool loser:
                                 root.phase === "payout" && !winner
-                            //  Stacks take the colour of the largest chip they
-                            //  could be paid out in.
-                            readonly property int tier: {
-                                let k = 0;
-                                for (let i = 0; i < root.chips.length; i++)
-                                    if (chip.amount >= root.chips[i]) k = i;
-                                return k;
-                            }
-
                             visible: amount > 0
                             x: modelData.x - 13
                             y: modelData.y - 13
@@ -1283,22 +1443,11 @@ ShellRoot {
                             opacity: loser ? 0.22 : 1
                             Behavior on opacity { NumberAnimation { duration: 420 } }
 
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: width / 2
-                                color: root.chipColor[chip.tier]
-                                border.width: 2
-                                border.color: chip.winner ? root.theme.gold
-                                                          : Qt.rgba(0, 0, 0, 0.45)
-
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: chip.amount
-                                    font.family: root.theme.display
-                                    font.pixelSize: chip.amount > 99 ? 9 : 11
-                                    font.bold: true
-                                    color: root.chipInk[chip.tier]
-                                }
+                            Chip {
+                                dim: 26
+                                amount: chip.amount
+                                highlight: chip.winner ? root.theme.gold
+                                                       : "transparent"
                             }
 
                             SequentialAnimation on scale {
@@ -1335,34 +1484,30 @@ ShellRoot {
 
                     Repeater {
                         model: 4
-                        Rectangle {
+                        Item {
+                            id: slot
                             required property int index
                             readonly property bool sel: root.chipIndex === index
 
                             width: 52
                             height: 52
-                            radius: 26
-                            color: root.chipColor[index]
-                            border.width: sel ? 3 : 2
-                            border.color: sel ? root.theme.gold : Qt.rgba(0, 0, 0, 0.45)
                             scale: sel ? 1.0 : 0.88
-
                             Behavior on scale { NumberAnimation { duration: 110 } }
-                            Behavior on border.color { ColorAnimation { duration: 110 } }
 
-                            Text {
-                                anchors.centerIn: parent
-                                text: root.chips[index]
-                                font.family: root.theme.display
-                                font.pixelSize: 15
-                                font.bold: true
-                                color: root.chipInk[index]
+                            Chip {
+                                dim: 52
+                                amount: root.chips[slot.index]
+                                //  White, as in bjak. Gold is the winning
+                                //  chip's on the felt, and one colour should
+                                //  not mean both "selected" and "paid".
+                                highlight: slot.sel ? root.theme.fg
+                                                    : "transparent"
                             }
 
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.chipIndex = index
+                                onClicked: root.chipIndex = slot.index
                             }
                         }
                     }

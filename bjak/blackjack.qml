@@ -2,7 +2,7 @@
 //
 //  run:     qs -p ~/cloon/widgames/bjak/blackjack.qml
 //
-//  keys:    1-4 chip · space deal · h hit · s stand · d double · p split
+//  keys:    1-9 chip · space deal · h hit · s stand · d double · p split
 //           u undo · c clear · r rebet · esc close
 //
 //  Edit the `theme` block below to restyle everything.
@@ -199,12 +199,51 @@ ShellRoot {
     // ═══════════════════════════════════════════════════════════
     //  GAME STATE
     // ═══════════════════════════════════════════════════════════
-    readonly property var chips: [1, 5, 25, 100]
+    //  The house progression — white, red, green, black — which is what these
+    //  denominations are on a real floor. `chipSpot` is the colour of the edge
+    //  spots and the inner ring: white against every body except the white one,
+    //  which takes navy, because white spots on a white chip are no spots.
     readonly property var chipColor: ["#e8e8ee", "#d3283a", "#2f9e5a", "#22222c"]
+    readonly property var chipSpot:  ["#2b3a63", "#ffffff", "#ffffff", "#ffffff"]
     readonly property var chipInk:   ["#16161e", "#ffffff", "#ffffff", "#ffffff"]
+
+    //  Every denomination that exists, in order. The first four are the rack a
+    //  table starts with; the rest are the high end, and repeat the same
+    //  1/5/25/100 shape a thousand times up.
+    readonly property var chipLadder: [1, 5, 25, 100, 1000, 5000, 25000, 100000]
+
+    //  What the round has to play with. Chips move between `credits` and the
+    //  circle and then out onto the hands, so no single one of those is the
+    //  bankroll — but the pair that is live in each phase always sums to the
+    //  figure the round opened on, which is what keeps the rack from gaining
+    //  and losing a chip as you place them.
+    readonly property int bankroll: root.phase === "betting"
+                                    ? root.credits + root.wagered
+                                    : root.credits + root.staked
+
+    //  The rack. The base four are always out; above them a denomination
+    //  appears once the bankroll covers it, so the thousand arrives the moment
+    //  you are worth one.
+    readonly property var chips: {
+        const out = [];
+        for (let i = 0; i < root.chipLadder.length; i++)
+            if (i < 4 || root.chipLadder[i] <= root.bankroll)
+                out.push(root.chipLadder[i]);
+        return out;
+    }
+
+    //  Losing the top chip out from under the selection would otherwise leave
+    //  it pointing past the end of the rack.
+    onChipsChanged: if (root.chipIndex >= root.chips.length)
+                        root.chipIndex = root.chips.length - 1;
 
     property int  credits:   200
     property int  chipIndex: 1
+
+    //  How many times the bank has been emptied and put back. Kept beside the
+    //  credits on disk, because a tally that reset every launch would only ever
+    //  read 0 or 1.
+    property int  rebuys:    0
 
     //  betting · dealing · player · dealer · payout
     property string phase:   "betting"
@@ -283,6 +322,7 @@ ShellRoot {
         JsonAdapter {
             id: bank
             property int credits: 200
+            property int rebuys:  0
         }
     }
 
@@ -299,6 +339,10 @@ ShellRoot {
         //  launch while looking, from the file's contents, like it is working.
         bankFile.text();
         root.credits = bank.credits;
+        //  Read before topUp(), which is the thing that increments it — a
+        //  launch onto an empty bank is a wipeout like any other, and it has to
+        //  count from the figure on disk rather than from zero.
+        root.rebuys = bank.rebuys;
         root.topUp();
         bankFile.writeAdapter();
 
@@ -306,6 +350,10 @@ ShellRoot {
     }
     onCreditsChanged: {
         bank.credits = root.credits;
+        bankFile.writeAdapter();
+    }
+    onRebuysChanged: {
+        bank.rebuys = root.rebuys;
         bankFile.writeAdapter();
     }
 
@@ -316,10 +364,13 @@ ShellRoot {
     function topUp(): bool {
         if (root.credits > 0) return false;
         root.credits = 200;
+        root.rebuys += 1;
         root.message = "BANK EMPTY — BACK TO 200";
         return true;
     }
 
+    //  Deliberate, so it does not count as a rebuy. The tally is a record of
+    //  being wiped out, and topping yourself up on purpose is the opposite.
     function resetBank(): void {
         root.credits = 200;
         root.message = "BANK RESET";
@@ -370,12 +421,60 @@ ShellRoot {
         root.chipIndex = (root.chipIndex + 1) % root.chips.length;
     }
 
-    //  Which chip a stack is drawn as: the largest denomination it covers.
+    //  Which of the four palettes a chip wears. Everything from the hundred up
+    //  wears the hundred's — a black chip carrying a bigger number — because a
+    //  fifth and sixth invented colour would say less than the number already
+    //  on the face does.
     function chipTier(amount) {
-        let k = 0;
-        for (let i = 0; i < root.chips.length; i++)
-            if (amount >= root.chips[i]) k = i;
-        return k;
+        if (amount >= 100) return 3;
+        if (amount >= 25)  return 2;
+        if (amount >= 5)   return 1;
+        return 0;
+    }
+
+    //  What is printed on it. Four digits do not fit inside the ring, and
+    //  nobody calls it a one-thousand chip anyway.
+    function chipLabel(amount) {
+        if (amount >= 1000000) return (amount / 1000000) + "M";
+        if (amount >= 1000)    return (amount / 1000) + "k";
+        return String(amount);
+    }
+
+    //  A bet is shown as the chips it is made of rather than as one disc with
+    //  the total printed on it — a stack per denomination, largest first. Both
+    //  functions below return the same shape, [{ value, count }, …], which is
+    //  what `ChipStack` draws.
+
+    //  What is in the circle: the chips actually placed, so three twenty-fives
+    //  stay three twenty-fives. Colouring them up into a hundred behind the
+    //  player's back would make undo look broken.
+    function betStacks() {
+        const counts = {};
+        for (let i = 0; i < root.betOrder.length; i++)
+            counts[root.betOrder[i]] = (counts[root.betOrder[i]] || 0) + 1;
+        const out = [];
+        //  Over the whole ladder rather than the current rack: a chip already
+        //  in the circle must keep being drawn even if the bankroll it bought
+        //  has since dropped below its denomination.
+        for (let i = root.chipLadder.length - 1; i >= 0; i--) {
+            const d = root.chipLadder[i];
+            if (counts[d]) out.push({ value: d, count: counts[d] });
+        }
+        return out;
+    }
+
+    //  What is on a hand. A split or a double produces a number rather than a
+    //  list of chips, so this one breaks the figure down the way a dealer would
+    //  pay it: biggest denomination first, down to the ones.
+    function chipStacks(amount) {
+        const out = [];
+        let left = amount;
+        for (let i = root.chipLadder.length - 1; i >= 0; i--) {
+            const d = root.chipLadder[i];
+            const n = Math.floor(left / d);
+            if (n > 0) { out.push({ value: d, count: n }); left -= n * d; }
+        }
+        return out;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -854,28 +953,159 @@ ShellRoot {
 
     // ═══════════════════════════════════════════════════════════
     //  CHIP
+    //
+    //  A real clay chip: a coloured body, eight edge spots cut into the rim,
+    //  the ring those spots stop at, a dark edge, and the denomination in the
+    //  middle. Drawn rather than drawn-on — every measurement below is a
+    //  fraction of the radius, so the same component is the 24px chip under a
+    //  hand and the 52px one in the rack, and neither is a scaled bitmap.
     // ═══════════════════════════════════════════════════════════
-    component Chip: Rectangle {
+    component Chip: Item {
         id: chip
-        property int amount: 0
+        property int  amount: 0
         property real dim: 26
-        readonly property int tier: root.chipTier(amount)
+        property bool selected: false
+
+        readonly property int   tier: root.chipTier(amount)
+        readonly property color body: root.chipColor[tier]
+        readonly property color spot: root.chipSpot[tier]
 
         width: dim
         height: dim
-        radius: dim / 2
         visible: amount > 0
-        color: root.chipColor[tier]
-        border.width: 2
-        border.color: Qt.rgba(0, 0, 0, 0.45)
+
+        Canvas {
+            id: clay
+            anchors.fill: parent
+
+            onPaint: {
+                const ctx = getContext("2d");
+                ctx.reset();
+
+                const r = width / 2, cx = r, cy = r;
+                const edge = Math.max(1.25, r * 0.09);
+                const rim  = r - edge / 2;          // the body, inside the edge
+                const stop = rim * 0.70;            // how deep the spots cut
+                const ring = rim * 0.66;
+
+                ctx.beginPath();
+                ctx.arc(cx, cy, rim, 0, 2 * Math.PI);
+                ctx.fillStyle = chip.body;
+                ctx.fill();
+
+                //  Eight spots on 45° centres. Each is the wedge between the
+                //  rim and `stop`, which is why they read as cut out of the
+                //  edge rather than painted onto it.
+                const half = 9 * Math.PI / 180;
+                for (let i = 0; i < 8; i++) {
+                    const a = i * Math.PI / 4;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, rim,  a - half, a + half, false);
+                    ctx.arc(cx, cy, stop, a + half, a - half, true);
+                    ctx.closePath();
+                    ctx.fillStyle = chip.spot;
+                    ctx.fill();
+                }
+
+                ctx.beginPath();
+                ctx.arc(cx, cy, ring, 0, 2 * Math.PI);
+                ctx.strokeStyle = chip.spot;
+                ctx.lineWidth = Math.max(1, r * 0.055);
+                ctx.stroke();
+
+                //  Selection rides the edge instead of adding a second circle
+                //  outside it, so picking a chip off the rack does not change
+                //  how much room the chip takes up. It goes on thinner than
+                //  the dark edge it replaces — a fine white line reads as
+                //  picked out, where a heavy one reads as a different chip.
+                ctx.beginPath();
+                ctx.arc(cx, cy, rim, 0, 2 * Math.PI);
+                ctx.strokeStyle = chip.selected ? root.theme.fg
+                                                : Qt.rgba(0, 0, 0, 0.55);
+                ctx.lineWidth = chip.selected ? Math.max(1, edge * 0.6) : edge;
+                ctx.stroke();
+            }
+        }
+
+        //  Canvas repaints itself on resize but not on a colour change, and the
+        //  tier moves under a growing stack.
+        onTierChanged:     clay.requestPaint()
+        onSelectedChanged: clay.requestPaint()
 
         Text {
+            id: face
             anchors.centerIn: parent
-            text: chip.amount
+            text: root.chipLabel(chip.amount)
             font.family: root.theme.font
-            font.pixelSize: chip.amount > 99 ? chip.dim * 0.32 : chip.dim * 0.4
+            //  Sized to the face inside the ring, not to the whole chip, so
+            //  the number stays within the ring instead of running under the
+            //  spots. The face is 0.66 of the chip and this font runs about
+            //  0.6em to the character, so n characters need 0.6n em and the
+            //  ratio that fits them is 0.66 / 0.6n.
+            font.pixelSize: chip.dim * Math.min(0.42, 1.05 / text.length)
             font.bold: true
             color: root.chipInk[chip.tier]
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  CHIP STACK — a bet, in the chips it is made of
+    //
+    //  One column per denomination, each drawn as discs leaning up out of the
+    //  one below so the stack has a height you can read at a glance. Past
+    //  `maxVisible` the column stops growing and states its count instead,
+    //  which is the only way a bet of 400 fits under a hand.
+    // ═══════════════════════════════════════════════════════════
+    component ChipStack: Row {
+        id: stack
+        property var  model: []
+        property real dim: 26
+        property int  maxVisible: 4
+
+        readonly property real lift: Math.max(4, dim * 0.28)
+        readonly property real colH: dim + (maxVisible - 1) * lift
+
+        spacing: 2
+        //  The count hangs below this height rather than inside it, so a stack
+        //  centres on its chips and not on the empty line under them.
+        height: colH
+
+        Repeater {
+            model: stack.model
+
+            Item {
+                id: col
+                required property var modelData
+                readonly property int shown: Math.min(modelData.count, stack.maxVisible)
+
+                width: stack.dim
+                height: stack.height
+
+                Repeater {
+                    model: col.shown
+                    Chip {
+                        required property int index
+                        amount: col.modelData.value
+                        dim: stack.dim
+                        //  Bottom chip first, each one lifted clear of it, so
+                        //  the lower discs peek out below the top one.
+                        y: stack.colH - stack.dim - index * stack.lift
+                        z: index
+                    }
+                }
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.bottom
+                    anchors.topMargin: 1
+                    text: "×" + col.modelData.count
+                    visible: col.modelData.count > stack.maxVisible
+                    font.family: root.theme.font
+                    font.pixelSize: Math.max(8, stack.dim * 0.34)
+                    font.bold: true
+                    color: root.theme.fg
+                }
+            }
         }
     }
 
@@ -989,6 +1219,7 @@ ShellRoot {
             return JSON.stringify({
                 visible: true,
                 credits: root.credits,
+                rebuys: root.rebuys,
                 wagered: root.wagered,
                 staked: root.staked,
                 chip: root.chips[root.chipIndex],
@@ -1014,7 +1245,9 @@ ShellRoot {
     //  this block and nothing else.
     // ═══════════════════════════════════════════════════════════
     readonly property int tableW: 686
-    readonly property int tableH: 364
+    //  Deep enough for the player zone at y=210 plus its 161 and a margin —
+    //  the zone grew when the single bet disc became a stack of them.
+    readonly property int tableH: 382
     readonly property int slotW:  164
 
     FloatingWindow {
@@ -1043,11 +1276,14 @@ ShellRoot {
             focus: true
 
             Keys.onPressed: (e) => {
+                //  One key per chip on the rack, however many that is today.
+                if (e.key >= Qt.Key_1 && e.key <= Qt.Key_9) {
+                    const i = e.key - Qt.Key_1;
+                    if (i < root.chips.length) root.chipIndex = i;
+                    e.accepted = true;
+                    return;
+                }
                 switch (e.key) {
-                case Qt.Key_1: root.chipIndex = 0; break;
-                case Qt.Key_2: root.chipIndex = 1; break;
-                case Qt.Key_3: root.chipIndex = 2; break;
-                case Qt.Key_4: root.chipIndex = 3; break;
                 case Qt.Key_Space:
                 case Qt.Key_Return:
                 case Qt.Key_Enter: root.deal(); break;
@@ -1102,6 +1338,27 @@ ShellRoot {
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 18
+
+                        Column {
+                            spacing: 0
+                            Text {
+                                anchors.right: parent.right
+                                text: "REBUYS"
+                                font.family: root.theme.font
+                                font.pixelSize: 9
+                                font.letterSpacing: 1.4
+                                color: root.theme.inactive
+                            }
+                            Text {
+                                anchors.right: parent.right
+                                text: root.rebuys
+                                font.family: root.theme.font
+                                font.pixelSize: 19
+                                font.bold: true
+                                color: root.rebuys > 0 ? root.theme.red
+                                                       : root.theme.inactive
+                            }
+                        }
 
                         Column {
                             spacing: 0
@@ -1234,20 +1491,20 @@ ShellRoot {
                         anchors.horizontalCenter: parent.horizontalCenter
                         y: 210
                         width: parent.width
-                        height: 144
+                        height: 161
 
                         //  Nothing is out yet: the circle is the whole table.
                         Item {
                             anchors.centerIn: parent
-                            width: 96
-                            height: 96
+                            width: 132
+                            height: 132
                             visible: root.hands.length === 0
 
                             Rectangle {
                                 anchors.centerIn: parent
-                                width: 84
-                                height: 84
-                                radius: 42
+                                width: 118
+                                height: 118
+                                radius: 59
                                 color: "transparent"
                                 border.width: 2
                                 border.color: circleArea.containsMouse
@@ -1265,12 +1522,16 @@ ShellRoot {
                                     color: root.theme.feltLine
                                     visible: root.wagered === 0
                                 }
+                            }
 
-                                Chip {
-                                    anchors.centerIn: parent
-                                    dim: 44
-                                    amount: root.wagered
-                                }
+                            //  Outside the circle rather than inside it, so a
+                            //  tall bet spills over the edge the way chips do
+                            //  instead of being boxed in by it.
+                            ChipStack {
+                                anchors.centerIn: parent
+                                model: root.betStacks()
+                                dim: 28
+                                maxVisible: 4
                             }
 
                             MouseArea {
@@ -1327,10 +1588,11 @@ ShellRoot {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         spacing: 8
 
-                                        Chip {
+                                        ChipStack {
                                             anchors.verticalCenter: parent.verticalCenter
-                                            dim: 24
-                                            amount: handCol.modelData.bet
+                                            model: root.chipStacks(handCol.modelData.bet)
+                                            dim: 26
+                                            maxVisible: 3
                                         }
 
                                         Text {
@@ -1363,51 +1625,30 @@ ShellRoot {
                     spacing: root.theme.gap
 
                     Repeater {
-                        model: 4
-                        Rectangle {
+                        model: root.chips
+                        Item {
+                            id: slot
+                            required property var modelData
                             required property int index
                             readonly property bool sel: root.chipIndex === index
 
                             width: 52
                             height: 52
-                            radius: 26
-                            color: root.chipColor[index]
-                            border.width: sel ? 3 : 2
-                            border.color: sel ? root.theme.gold : Qt.rgba(0, 0, 0, 0.45)
-                            scale: sel ? 1.0 : 0.88
 
-                            Behavior on scale { NumberAnimation { duration: 110 } }
-                            Behavior on border.color { ColorAnimation { duration: 110 } }
-
-                            Text {
+                            Chip {
                                 anchors.centerIn: parent
-                                text: root.chips[index]
-                                font.family: root.theme.font
-                                font.pixelSize: 15
-                                font.bold: true
-                                color: root.chipInk[index]
+                                dim: 52
+                                amount: slot.modelData
+                                selected: slot.sel
+                                scale: slot.sel ? 1.0 : 0.88
+                                Behavior on scale { NumberAnimation { duration: 110 } }
                             }
 
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.chipIndex = index
+                                onClicked: root.chipIndex = slot.index
                             }
-                        }
-                    }
-
-                    Item {
-                        width: parent.width - 4 * 52 - root.theme.gap * 4
-                        height: 52
-                        Text {
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: root.phase === "betting"
-                                  ? "1-4 chip  ·  click circle to bet  ·  space deal"
-                                  : "h hit  ·  s stand  ·  d double  ·  p split"
-                            font.family: root.theme.font
-                            font.pixelSize: 10
-                            color: root.theme.inactive
                         }
                     }
                 }
