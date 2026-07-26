@@ -42,6 +42,17 @@ ShellRoot {
         readonly property int    pad:      20
         readonly property int    radius:   10
         readonly property string font:     "JetBrainsMono Nerd Font"
+
+        // Where it sits, and how long it takes to get there. It rests in the
+        // bottom-right corner these many pixels clear of the screen edges, and
+        // slides in and out through the bottom one.
+        //
+        // The numbers are sized for edge: 44 is its bar down the right, 10 its
+        // border along the bottom, and the remainder is breathing room. Zero them
+        // on a bare compositor.
+        readonly property int    edgeRight:  44 + 14
+        readonly property int    edgeBottom: 10 + 14
+        readonly property int    slideMs:    260
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -393,12 +404,24 @@ ShellRoot {
     // ═══════════════════════════════════════════════════════════
     //  WINDOW
     // ═══════════════════════════════════════════════════════════
+    // Whether it should be on screen. Everything that shows or hides the widget
+    // sets this and nothing else; the window follows.
+    property bool open: true
+
+    // Whether the window exists. Trails `open` by the length of the slide, because
+    // a window destroyed the moment it is hidden has nothing left to animate - it
+    // would simply vanish. The slide itself sets this back to false when it lands.
+    property bool showing: true
+
+    onOpenChanged: if (root.open)
+        root.showing = true
+
     IpcHandler {
         target: "poker"
 
-        function toggle(): void { loader.active = !loader.active; }
-        function show():   void { loader.active = true; }
-        function hide():   void { loader.active = false; }
+        function toggle(): void { root.open = !root.open; }
+        function show():   void { root.open = true; }
+        function hide():   void { root.open = false; }
 
         // play the widget without touching it — bind these in hyprland.conf
         function play(): void   { root.primary(); }   // deal, or draw
@@ -409,7 +432,9 @@ ShellRoot {
         // machine-readable state — handy for a waybar/eww credits readout
         function status(): string {
             return JSON.stringify({
-                visible: loader.active,
+                // `open`, not whether the window object happens to exist: mid-slide
+                // it still does, and it is on its way out.
+                visible: root.open,
                 credits: root.credits,
                 bet: root.bet,
                 phase: root.phase,
@@ -423,7 +448,7 @@ ShellRoot {
 
     LazyLoader {
         id: loader
-        active: true
+        active: root.showing
 
         PanelWindow {
             id: win
@@ -434,12 +459,68 @@ ShellRoot {
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
             exclusionMode: ExclusionMode.Ignore
 
+            // The bottom-right corner, and hard against the bottom edge - the
+            // right-hand margin is a margin, but the bottom one is not. It is part
+            // of the window, empty, sitting under the card: the room the card
+            // slides down through on its way off the screen. Anchor to the bottom
+            // with a margin instead and it would disappear into a line partway up
+            // the screen rather than off the edge of it.
+            anchors.right: true
+            anchors.bottom: true
+            margins.right: root.theme.edgeRight
+
             implicitWidth: frame.implicitWidth
-            implicitHeight: frame.implicitHeight
+            implicitHeight: frame.implicitHeight + root.theme.edgeBottom
+
+            // 1 is up, 0 is gone. The card's position is drawn from this rather
+            // than the window being moved, so the layer surface is laid out once
+            // and the compositor isn't resizing it sixty times a second.
+            property real reveal: (root.open && win.entered) ? 1 : 0
+
+            // Off until the window has finished being built, so the first frame is
+            // drawn with the card still below the screen and it slides up into
+            // view. Bind reveal straight to `open` and it would start at 1 - there
+            // is no transition from a value a property was simply created holding.
+            property bool entered: false
+
+            Component.onCompleted: Qt.callLater(() => win.entered = true)
+
+            // Landed at the bottom, and nothing asked for it back on the way down:
+            // let go of the window.
+            //
+            // Watching the value rather than the animation, because an animation
+            // inside a Behavior never emits finished() - it runs to completion and
+            // says nothing. The value does land exactly on its target, so this is
+            // the end of the slide as far as anything can tell. Deferred, since
+            // dropping `showing` destroys this window and we are standing in one of
+            // its own handlers; re-checked on the way out in case the deferral
+            // straddled a re-open.
+            onRevealChanged: if (win.reveal <= 0 && !root.open)
+                Qt.callLater(() => {
+                    if (!root.open)
+                        root.showing = false;
+                })
+
+            Behavior on reveal {
+                NumberAnimation {
+                    duration: root.theme.slideMs
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            // The window is taller than the card and the difference is transparent,
+            // which is not the same as absent - unmasked it would swallow clicks
+            // meant for whatever is underneath. Follows the card down as it leaves.
+            mask: Region {
+                y: frame.y
+                width: frame.width
+                height: frame.height
+            }
 
             Rectangle {
                 id: frame
-                anchors.fill: parent
+                width: win.width
+                y: win.height * (1 - win.reveal)
                 radius: 16
                 color: root.theme.bg
                 border.width: 1
@@ -464,7 +545,7 @@ ShellRoot {
                             root.primary(); break;
                         case Qt.Key_B: root.betOne(); break;
                         case Qt.Key_M: root.maxBet(); break;
-                        case Qt.Key_Escape: loader.active = false; break;
+                        case Qt.Key_Escape: root.open = false; break;
                         default: return;
                         }
                         e.accepted = true;
