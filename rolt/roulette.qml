@@ -463,21 +463,29 @@ ShellRoot {
         return true;
     }
 
+    //  Returns whether the chip actually went down, which is what stops the
+    //  click-and-hold repeat: an empty bank, a spot that isn't there, or the
+    //  wheel already turning all come back false and end the run rather than
+    //  firing "NOT ENOUGH CREDITS" ten times a second.
     function placeBet(spot) {
-        if (root.wager(spot, root.chips[root.chipIndex]))
-            root.message = "PLACE YOUR BETS";
+        if (!root.wager(spot, root.chips[root.chipIndex])) return false;
+        root.message = "PLACE YOUR BETS";
+        return true;
     }
 
+    //  Returns whether a chip actually came off, so the hold-to-remove repeat
+    //  ends the moment the spot is bare instead of spinning on an empty stack.
     function liftBet(spot) {
-        if (root.phase !== "betting" || !spot) return;
+        if (root.phase !== "betting" || !spot) return false;
         for (let i = root.betOrder.length - 1; i >= 0; i--)
             if (root.betOrder[i].id === spot.id) {
                 root.credits += root.betOrder[i].amount;
                 const next = root.betOrder.slice();
                 next.splice(i, 1);
                 root.betOrder = next;
-                return;
+                return true;
             }
+        return false;
     }
 
     function undo() {
@@ -1020,7 +1028,22 @@ ShellRoot {
     //  exists for exactly as long as it is on screen, and whatever opens it
     //  starts it fresh. The other ways out are in the WINDOW block.
     // ═══════════════════════════════════════════════════════════
-    function quit(): void { Qt.quit(); }
+    function quit(): void {
+        //  Chips on the felt are money already out of the bank, and the felt is
+        //  not saved — only the bank is. So closing with a bet down used to
+        //  bank the debit and drop the stake, quietly costing you the lot. Void
+        //  the round on the way out instead.
+        //
+        //  Not during payout: by then the stake is spent and `lastWin` has
+        //  already been paid, so handing it back would be free money. Betting
+        //  and spinning are both unresolved, and voiding those is what a table
+        //  would do.
+        if (root.phase !== "payout" && root.wagered > 0) {
+            root.credits += root.wagered;
+            root.betOrder = [];
+        }
+        Qt.quit();
+    }
 
     IpcHandler {
         target: "roulette"
@@ -1467,11 +1490,50 @@ ShellRoot {
                         cursorShape: felt.hover !== null && root.phase === "betting"
                                      ? Qt.PointingHandCursor : Qt.ArrowCursor
                         onPositionChanged: (m) => felt.hover = root.spotAt(m.x, m.y)
-                        onExited: felt.hover = null
-                        onClicked: (m) => {
-                            const s = root.spotAt(m.x, m.y);
-                            if (m.button === Qt.RightButton) root.liftBet(s);
-                            else root.placeBet(s);
+
+                        //  Hold either button to keep going — left lays chips
+                        //  down, right takes them back off. The repeat reads
+                        //  `felt.hover`, which `onPositionChanged` keeps current
+                        //  while the button is down, so dragging across the felt
+                        //  spreads chips along the drag (or sweeps them up)
+                        //  instead of working the spot you started from.
+                        Timer {
+                            id: pour
+                            //  Which button is down. Set on press, so the tick
+                            //  does not have to ask the mouse.
+                            property bool lifting: false
+                            //  A pause before the first repeat, so an ordinary
+                            //  click stays one chip, then quick.
+                            interval: 340
+                            repeat: true
+                            onTriggered: {
+                                pour.interval = 90;
+                                const ok = pour.lifting
+                                         ? root.liftBet(felt.hover)
+                                         : root.placeBet(felt.hover);
+                                if (!ok) pour.stop();
+                            }
+                        }
+
+                        //  On press rather than on click: `onClicked` fires at
+                        //  release, which would have moved one extra chip at
+                        //  the end of every hold.
+                        onPressed: (m) => {
+                            felt.hover = root.spotAt(m.x, m.y);
+                            const lift = m.button === Qt.RightButton;
+                            const ok = lift ? root.liftBet(felt.hover)
+                                            : root.placeBet(felt.hover);
+                            if (ok) {
+                                pour.lifting = lift;
+                                pour.interval = 340;
+                                pour.restart();
+                            }
+                        }
+                        onReleased: pour.stop()
+                        onCanceled: pour.stop()
+                        onExited: {
+                            pour.stop();
+                            felt.hover = null;
                         }
                     }
                 }

@@ -22,14 +22,19 @@ nothing — no engine, no shoe, no memory. Opening it again is the command above
 
 ## Playing
 
-Click the circle to put the selected chip down, then deal. Once the cards are
-out the buttons swap from the betting row to the playing row, because the
-betting keys are dead by then and the playing keys were dead before.
+Click the circle to put the selected chip down, then deal. Hold the button and
+the chips keep coming — left stacks them up, right takes them back off. There is
+a pause first, long enough to tell a click from a hold, and then it runs. It
+stops itself the moment a chip will not move, so a held button cannot sit there
+failing against an empty bank or an empty circle.
+
+Once the cards are out the buttons swap from the betting row to the playing row,
+because the betting keys are dead by then and the playing keys were dead before.
 
 | input             | action                          |
 |-------------------|---------------------------------|
-| left click circle | place a chip                    |
-| right click       | take one chip back off          |
+| left click circle | place a chip · hold to keep going |
+| right click       | take one back · hold to keep going |
 | `1`–`9`           | select a chip off the rack      |
 | `space`           | deal                            |
 | `h`               | hit                             |
