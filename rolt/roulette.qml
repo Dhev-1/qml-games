@@ -9,6 +9,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 
 ShellRoot {
     id: root
@@ -17,20 +18,20 @@ ShellRoot {
     //  THEME — the only block you normally touch
     // ═══════════════════════════════════════════════════════════
     property QtObject theme: QtObject {
-        readonly property color bg:        "#16161e"
-        readonly property color surface:   "#1e1e2a"
-        readonly property color raised:    "#272733"
-        readonly property color fg:        "#ffffff"
-        readonly property color muted:     "#8a8a94"
-        readonly property color inactive:  "#6a6a7a"
-        readonly property color blue:      "#4a9eff"
-        readonly property color green:     "#3ddc84"
-        readonly property color gold:      "#ffcc4d"
+        readonly property color bg:        "#0e0b0d"
+        readonly property color surface:   "#1a1512"
+        readonly property color raised:    "#2a2320"
+        readonly property color fg:        "#e8ddc4"
+        readonly property color muted:     "#8a7f6d"
+        readonly property color inactive:  "#6a6154"
+        readonly property color blue:      "#d4af5f"
+        readonly property color green:     "#7fb069"
+        readonly property color gold:      "#f0d78c"
 
-        readonly property color felt:      "#17342a"
-        readonly property color feltLine:  "#2c5646"
-        readonly property color numRed:    "#b3202f"
-        readonly property color numBlack:  "#1b1b22"
+        readonly property color felt:      "#142a20"
+        readonly property color feltLine:  "#274436"
+        readonly property color numRed:    "#a4243b"
+        readonly property color numBlack:  "#16110f"
         readonly property color numGreen:  "#12684a"
 
         readonly property color wheelRim:  "#3a2a1c"
@@ -49,6 +50,12 @@ ShellRoot {
         //  every word in the widget.
         readonly property string font:     "Open Sans"
         readonly property string display:  "DejaVu Sans"
+
+        //  Where the card sits: clear of the bar on the right, riding the
+        //  bottom edge, and how long the slide up takes.
+        readonly property int    edgeRight:  44 + 14
+        readonly property int    edgeBottom: 10 + 14
+        readonly property int    slideMs:    260
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -297,9 +304,9 @@ ShellRoot {
     //  ring — white on everything except the white chip, which takes navy,
     //  because white spots on a white chip are no spots.
     readonly property var chips: [1, 5, 25, 100]
-    readonly property var chipColor: ["#e8e8ee", "#d3283a", "#2f9e5a", "#22222c"]
-    readonly property var chipSpot:  ["#2b3a63", "#ffffff", "#ffffff", "#ffffff"]
-    readonly property var chipInk:   ["#16161e", "#ffffff", "#ffffff", "#ffffff"]
+    readonly property var chipColor: ["#e8e8ee", "#c13a4e", "#2f9e5a", "#22222c"]
+    readonly property var chipSpot:  ["#55432a", "#e8ddc4", "#e8ddc4", "#e8ddc4"]
+    readonly property var chipInk:   ["#0e0b0d", "#e8ddc4", "#e8ddc4", "#e8ddc4"]
 
     //  Which chip a disc is drawn as: the largest denomination it covers, so a
     //  stack of 30 wears the 25's green.
@@ -412,6 +419,18 @@ ShellRoot {
     function resetBank(): void {
         root.credits = 200;
         root.message = "BANK RESET";
+    }
+
+    //  The opposite gesture: hand 200 back to the house and strike one rebuy
+    //  off the tally. Must leave money to play with — paying down to zero
+    //  would only trip the next top-up and put the rebuy straight back.
+    function payBack(): bool {
+        if (root.losses < 1)     { root.message = "NO REBUYS TO PAY BACK";  return false; }
+        if (root.credits <= 200) { root.message = "NEED 200 SPARE TO PAY BACK"; return false; }
+        root.credits -= 200;
+        root.losses  -= 1;
+        root.message  = "REBUY PAID BACK";
+        return true;
     }
 
     //  The meter reads this rather than `credits` directly, so a payout counts
@@ -1060,6 +1079,7 @@ ShellRoot {
         function rebet():  void { root.rebet(); }
         function undo():   void { root.undo(); }
         function reset():  void { root.resetBank(); }
+        function payback(): void { root.payBack(); }
 
         //  Spot ids are the ones `status` reports: "straight:17", "corner:8-9-11-12",
         //  "red:1-3-5-…". Places the stake regardless of the selected chip.
@@ -1101,34 +1121,70 @@ ShellRoot {
     //  self-contained, so moving this onto a layer shell later means swapping
     //  this block and nothing else.
     // ═══════════════════════════════════════════════════════════
-    FloatingWindow {
+    //  A layer-shell card in the bottom-right corner, sliding up from the
+    //  bottom edge - the same window Bones and Ride the Bus use. Standalone,
+    //  the process is the window: it slides in on launch, and quitting drops
+    //  both together.
+    PanelWindow {
         id: win
-        visible: true
-        color: root.theme.bg
-        title: "roulette"
+        color: "transparent"
 
-        //  The compositor's close, and anything else that pulls the window
-        //  down, takes the process with it. Qt's default is to leave `visible`
-        //  false with the engine still resident, which is the thing being
-        //  avoided.
-        onVisibleChanged: if (!visible) root.quit()
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.namespace: "roulette"
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+        exclusionMode: ExclusionMode.Ignore
 
-        //  Fixed layout — the felt is a fixed pixel size, so letting the window
-        //  stretch only adds dead space beside it.
-        minimumSize: Qt.size(implicitWidth, implicitHeight)
-        maximumSize: Qt.size(implicitWidth, implicitHeight)
+        //  The bottom-right corner, and hard against the bottom edge — the
+        //  right-hand margin is a margin, but the bottom one is not. It is
+        //  part of the window, empty, sitting under the card: the room the
+        //  card slides up through on its way onto the screen.
+        anchors.right: true
+        anchors.bottom: true
+        margins.right: root.theme.edgeRight
 
-        implicitWidth: root.feltW + root.theme.pad * 2
-        //  pad · wheel · felt · rack · buttons · pad, with the Column's spacing
-        //  between each. Stated rather than derived so the window does not
-        //  resize itself a frame after it opens.
-        implicitHeight: root.theme.pad * 2 + 288 + 14 + root.feltH
-                        + 14 + 52 + 14 + 42
+        implicitWidth: frame.implicitWidth
+        implicitHeight: frame.implicitHeight + root.theme.edgeBottom
 
-        Item {
+        //  1 is up, 0 is gone. Off until the window has finished being built,
+        //  so the first frame is drawn with the card still below the screen
+        //  and it slides up into view.
+        property real reveal: win.entered ? 1 : 0
+        property bool entered: false
+
+        Component.onCompleted: Qt.callLater(() => win.entered = true)
+
+        Behavior on reveal {
+            NumberAnimation {
+                duration: root.theme.slideMs
+                easing.type: Easing.OutCubic
+            }
+        }
+
+        //  The window is taller than the card and the difference is
+        //  transparent, which is not the same as absent — unmasked it would
+        //  swallow clicks meant for whatever is underneath.
+        mask: Region {
+            y: frame.y
+            width: frame.width
+            height: frame.height
+        }
+
+        Rectangle {
             id: frame
-            anchors.fill: parent
+            width: win.width
+            y: win.height * (1 - win.reveal)
+            radius: 16
+            color: root.theme.bg
+            border.width: 1
+            border.color: root.theme.raised
             focus: true
+
+            implicitWidth: root.feltW + root.theme.pad * 2
+            //  pad · wheel · felt · rack · buttons · pad, with the Column's
+            //  spacing between each. Stated rather than derived so the window
+            //  does not resize itself a frame after it opens.
+            implicitHeight: root.theme.pad * 2 + 288 + 14 + root.feltH
+                            + 14 + 52 + 14 + 42
 
             Keys.onPressed: (e) => {
                 switch (e.key) {
@@ -1188,27 +1244,80 @@ ShellRoot {
                             //  because those two reset every round and this
                             //  one never does — and it is the one number here
                             //  that outlives the window.
+                            //  A record, not a control — handing 200 back is a
+                            //  deliberate gesture, so it gets a button of its
+                            //  own beside the tally rather than a hover trick
+                            //  on it. The button greys out when the bank has
+                            //  nothing spare or there is nothing to pay off,
+                            //  and a click in that state still says why.
                             Row {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                spacing: 6
+                                spacing: 12
 
-                                Text {
+                                Rectangle {
+                                    id: paybackBtn
+
+                                    readonly property bool ready: root.losses > 0 && root.credits > 200
+
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: "REBUYS"
-                                    font.family: root.theme.font
-                                    font.pixelSize: 10
-                                    font.letterSpacing: 1.5
-                                    color: root.theme.muted
+                                    width: paybackLabel.width + 18
+                                    height: 24
+                                    radius: root.theme.radius - 2
+                                    color: paybackTap.containsMouse && paybackBtn.ready
+                                           ? root.theme.raised : "transparent"
+                                    border.width: 1
+                                    border.color: paybackBtn.ready ? root.theme.gold
+                                                                   : root.theme.raised
+
+                                    Behavior on color { ColorAnimation { duration: 110 } }
+                                    Behavior on border.color { ColorAnimation { duration: 110 } }
+
+                                    Text {
+                                        id: paybackLabel
+                                        anchors.centerIn: parent
+                                        text: "PAY BACK"
+                                        font.family: root.theme.font
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                        font.letterSpacing: 1.5
+                                        color: paybackBtn.ready ? root.theme.gold
+                                                                : root.theme.inactive
+                                        Behavior on color { ColorAnimation { duration: 110 } }
+                                    }
+
+                                    MouseArea {
+                                        id: paybackTap
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: paybackBtn.ready ? Qt.PointingHandCursor
+                                                                      : Qt.ArrowCursor
+                                        onClicked: root.payBack()
+                                    }
                                 }
-                                Text {
+
+                                Row {
+                                    id: rebuyStat
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: root.losses
-                                    font.family: root.theme.display
-                                    font.pixelSize: 15
-                                    font.bold: true
-                                    color: root.losses > 0 ? root.theme.numRed
-                                                           : root.theme.inactive
+                                    spacing: 6
+
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "REBUYS"
+                                        font.family: root.theme.font
+                                        font.pixelSize: 10
+                                        font.letterSpacing: 1.5
+                                        color: root.theme.muted
+                                    }
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: root.losses
+                                        font.family: root.theme.display
+                                        font.pixelSize: 15
+                                        font.bold: true
+                                        color: root.losses > 0 ? root.theme.numRed
+                                                               : root.theme.inactive
+                                    }
                                 }
                             }
                         }

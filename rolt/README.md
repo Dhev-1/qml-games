@@ -107,6 +107,7 @@ qs -p ~/cloon/widgames/rolt/roulette.qml ipc call roulette <fn>
 | `undo`          | lift the last chip                            |
 | `clear`         | clear the felt                                |
 | `reset`         | put the bank back to 200                      |
+| `payback`       | hand 200 back to strike one rebuy off the tally |
 | `rebet`         | replay the last round's bets                  |
 | `status`        | JSON: visible, credits, wagered, chip, phase, lastNumber, lastWin, history, bets |
 

@@ -182,6 +182,7 @@ qs -p ~/cloon/widgames/bjak/blackjack.qml ipc call blackjack <fn>
 | `undo`          | lift the last chip                            |
 | `clear`         | clear the bet                                 |
 | `reset`         | put the bank back to 200                      |
+| `payback`       | hand 200 back to strike one rebuy off the tally |
 | `rebet`         | replay the last hand's bet                    |
 | `status`        | JSON: visible, credits, rebuys, wagered, staked, chip, phase, message, lastWin, cardsLeft, dealer, hands |
 

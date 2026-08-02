@@ -33,24 +33,24 @@ Scope {
     //  THEME — the only block you normally touch
     // ═══════════════════════════════════════════════════════════
     property QtObject theme: QtObject {
-        readonly property color bg:        "#16161e"
-        readonly property color surface:   "#1e1e2a"
-        readonly property color raised:    "#272733"
-        readonly property color fg:        "#ffffff"
-        readonly property color muted:     "#8a8a94"
-        readonly property color inactive:  "#6a6a7a"
-        readonly property color blue:      "#4a9eff"
-        readonly property color red:       "#ff4d5e"
-        readonly property color green:     "#3ddc84"
-        readonly property color gold:      "#ffcc4d"
+        readonly property color bg:        "#0e0b0d"
+        readonly property color surface:   "#1a1512"
+        readonly property color raised:    "#2a2320"
+        readonly property color fg:        "#e8ddc4"
+        readonly property color muted:     "#8a7f6d"
+        readonly property color inactive:  "#6a6154"
+        readonly property color blue:      "#d4af5f"
+        readonly property color red:       "#e05a6e"
+        readonly property color green:     "#7fb069"
+        readonly property color gold:      "#f0d78c"
 
-        readonly property color felt:      "#17342a"
-        readonly property color feltLine:  "#2c5646"
+        readonly property color felt:      "#142a20"
+        readonly property color feltLine:  "#274436"
 
-        readonly property color cardFace:  "#f2f2f6"
-        readonly property color cardInk:   "#16161e"
-        readonly property color cardRed:   "#d3283a"
-        readonly property color cardBack:  "#2b3a63"
+        readonly property color cardFace:  "#f0e8d8"
+        readonly property color cardInk:   "#0e0b0d"
+        readonly property color cardRed:   "#c13a4e"
+        readonly property color cardBack:  "#55432a"
 
         readonly property int    cardW:    62
         readonly property int    cardH:    88
@@ -226,9 +226,9 @@ Scope {
     //  denominations are on a real floor. `chipSpot` is the colour of the edge
     //  spots and the inner ring: white against every body except the white one,
     //  which takes navy, because white spots on a white chip are no spots.
-    readonly property var chipColor: ["#e8e8ee", "#d3283a", "#2f9e5a", "#22222c"]
-    readonly property var chipSpot:  ["#2b3a63", "#ffffff", "#ffffff", "#ffffff"]
-    readonly property var chipInk:   ["#16161e", "#ffffff", "#ffffff", "#ffffff"]
+    readonly property var chipColor: ["#e8e8ee", "#c13a4e", "#2f9e5a", "#22222c"]
+    readonly property var chipSpot:  ["#55432a", "#e8ddc4", "#e8ddc4", "#e8ddc4"]
+    readonly property var chipInk:   ["#0e0b0d", "#e8ddc4", "#e8ddc4", "#e8ddc4"]
 
     //  Every denomination that exists, in order. The first four are the rack a
     //  table starts with; the rest are the high end, and repeat the same
@@ -397,6 +397,18 @@ Scope {
     function resetBank(): void {
         root.credits = 200;
         root.message = "BANK RESET";
+    }
+
+    //  The opposite gesture: hand 200 back to the house and strike one rebuy
+    //  off the tally. Must leave money to play with — paying down to zero
+    //  would only trip the next top-up and put the rebuy straight back.
+    function payBack(): bool {
+        if (root.rebuys < 1)     { root.message = "NO REBUYS TO PAY BACK";  return false; }
+        if (root.credits <= 200) { root.message = "NEED 200 SPARE TO PAY BACK"; return false; }
+        root.credits -= 200;
+        root.rebuys  -= 1;
+        root.message  = "REBUY PAID BACK";
+        return true;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -1221,6 +1233,7 @@ Scope {
         function clear():  void { root.clearBets(); }
         function rebet():  void { root.rebet(); }
         function reset():  void { root.resetBank(); }
+        function payback(): void { root.payBack(); }
 
         //  Stakes `amount` regardless of the selected chip, so a scripted round
         //  doesn't have to drive the rack first.
@@ -1439,7 +1452,56 @@ Scope {
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 18
 
+                            //  Handing 200 back is a deliberate gesture, so it gets a
+                            //  button that says so rather than a hover trick on the
+                            //  counter. It sits there greyed out when the bank has
+                            //  nothing spare or there is nothing to pay off, and a
+                            //  click in that state still says why on the felt.
+                            Rectangle {
+                                id: paybackBtn
+
+                                readonly property bool ready: root.rebuys > 0 && root.credits > 200
+
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: paybackLabel.width + 18
+                                height: 26
+                                radius: root.theme.radius - 2
+                                color: paybackTap.containsMouse && paybackBtn.ready
+                                       ? root.theme.raised : "transparent"
+                                border.width: 1
+                                border.color: paybackBtn.ready ? root.theme.gold
+                                                               : root.theme.raised
+
+                                Behavior on color { ColorAnimation { duration: 110 } }
+                                Behavior on border.color { ColorAnimation { duration: 110 } }
+
+                                Text {
+                                    id: paybackLabel
+                                    anchors.centerIn: parent
+                                    text: "PAY BACK"
+                                    font.family: root.theme.font
+                                    font.pixelSize: 9
+                                    font.bold: true
+                                    font.letterSpacing: 1.4
+                                    color: paybackBtn.ready ? root.theme.gold
+                                                            : root.theme.inactive
+                                    Behavior on color { ColorAnimation { duration: 110 } }
+                                }
+
+                                MouseArea {
+                                    id: paybackTap
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: paybackBtn.ready ? Qt.PointingHandCursor
+                                                                  : Qt.ArrowCursor
+                                    onClicked: root.payBack()
+                                }
+                            }
+
+                            //  Times the bank has been emptied. A record, not a control.
                             Column {
+                                id: rebuyStat
+                                anchors.verticalCenter: parent.verticalCenter
                                 spacing: 0
                                 Text {
                                     anchors.right: parent.right

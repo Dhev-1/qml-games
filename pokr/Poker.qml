@@ -18,6 +18,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 
 Scope {
     id: root
@@ -29,28 +30,32 @@ Scope {
     //  `open`.
     property bool standalone: false
 
+    // The screen to open on. Null takes the compositor's default, which is
+    // what the standalone wrapper wants; edge binds it to the focused monitor.
+    property var monitor: null
+
     // ═══════════════════════════════════════════════════════════
     //  THEME — the only block you normally touch
     // ═══════════════════════════════════════════════════════════
     property QtObject theme: QtObject {
-        readonly property color bg:        "#16161e"
-        readonly property color surface:   "#1e1e2a"
-        readonly property color raised:    "#272733"
-        readonly property color fg:        "#ffffff"
-        readonly property color muted:     "#8a8a94"
-        readonly property color inactive:  "#6a6a7a"
-        readonly property color blue:      "#4a9eff"
-        readonly property color red:       "#ff4d5e"
-        readonly property color green:     "#3ddc84"
-        readonly property color gold:      "#ffcc4d"
+        readonly property color bg:        "#0e0b0d"
+        readonly property color surface:   "#1a1512"
+        readonly property color raised:    "#2a2320"
+        readonly property color fg:        "#e8ddc4"
+        readonly property color muted:     "#8a7f6d"
+        readonly property color inactive:  "#6a6154"
+        readonly property color blue:      "#d4af5f"
+        readonly property color red:       "#e05a6e"
+        readonly property color green:     "#7fb069"
+        readonly property color gold:      "#f0d78c"
 
-        readonly property color felt:      "#17342a"
-        readonly property color feltLine:  "#2c5646"
+        readonly property color felt:      "#142a20"
+        readonly property color feltLine:  "#274436"
 
-        readonly property color cardFace:  "#f2f2f6"
-        readonly property color cardInk:   "#16161e"
-        readonly property color cardRed:   "#d3283a"
-        readonly property color cardBack:  "#2b3a63"
+        readonly property color cardFace:  "#f0e8d8"
+        readonly property color cardInk:   "#0e0b0d"
+        readonly property color cardRed:   "#c13a4e"
+        readonly property color cardBack:  "#55432a"
 
         readonly property int    cardW:    92
         readonly property int    cardH:    132
@@ -58,6 +63,12 @@ Scope {
         readonly property int    pad:      20
         readonly property int    radius:   10
         readonly property string font:     "JetBrainsMono Nerd Font"
+
+        //  Where the card sits: clear of the bar on the right, riding the
+        //  bottom edge, and how long the slide up and down takes.
+        readonly property int    edgeRight:  44 + 14
+        readonly property int    edgeBottom: 10 + 14
+        readonly property int    slideMs:    260
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -96,9 +107,9 @@ Scope {
     //  spots and the inner ring: white against every body except the white one,
     //  which takes navy, because white spots on a white chip are no spots.
     // ═══════════════════════════════════════════════════════════
-    readonly property var chipColor: ["#e8e8ee", "#d3283a", "#2f9e5a", "#22222c"]
-    readonly property var chipSpot:  ["#2b3a63", "#ffffff", "#ffffff", "#ffffff"]
-    readonly property var chipInk:   ["#16161e", "#ffffff", "#ffffff", "#ffffff"]
+    readonly property var chipColor: ["#e8e8ee", "#c13a4e", "#2f9e5a", "#22222c"]
+    readonly property var chipSpot:  ["#55432a", "#e8ddc4", "#e8ddc4", "#e8ddc4"]
+    readonly property var chipInk:   ["#0e0b0d", "#e8ddc4", "#e8ddc4", "#e8ddc4"]
 
     //  Every denomination that exists, in order. The first four are the rack a
     //  machine starts with; the rest are the high end, and repeat the same
@@ -279,6 +290,18 @@ Scope {
     function resetBank(): void {
         root.credits = 200;
         root.message = "BANK RESET";
+    }
+
+    //  The opposite gesture: hand 200 back to the house and strike one rebuy
+    //  off the tally. Must leave money to play with — paying down to zero
+    //  would only trip the next top-up and put the rebuy straight back.
+    function payBack(): bool {
+        if (root.rebuys < 1)     { root.message = "NO REBUYS TO PAY BACK";  return false; }
+        if (root.credits <= 200) { root.message = "NEED 200 SPARE TO PAY BACK"; return false; }
+        root.credits -= 200;
+        root.rebuys  -= 1;
+        root.message  = "REBUY PAID BACK";
+        return true;
     }
 
     // ── deck helpers ───────────────────────────────────────────
@@ -816,6 +839,7 @@ Scope {
         }
         function coins(n: int): void { root.setCoins(n); }
         function reset(): void { root.resetBank(); }
+        function payback(): void { root.payBack(); }
 
         //  Machine-readable state — handy for a waybar/eww credits readout.
         function status(): string {
@@ -858,36 +882,93 @@ Scope {
     readonly property int rackH:   52
     readonly property int btnH:    42
 
-    FloatingWindow {
-        id: win
-        visible: root.open
-        color: root.theme.bg
-        title: "poker"
+    //  The surface follows `open`; `showing` keeps it alive through the
+    //  slide-out, then lets the LazyLoader drop the window - engine, felt and
+    //  all - so a closed game costs nothing.
+    property bool showing: false
 
-        //  The compositor's close writes `visible` directly, which both takes
-        //  the window down and breaks the binding above. quit() has the last
-        //  word on what that means — the process, standalone; only `open`,
-        //  inside edge — and the binding goes back on afterwards so the shell
-        //  can ask for the window again. Standalone never gets that far.
-        onVisibleChanged: if (!win.visible && root.open) {
-            root.quit();
-            win.visible = Qt.binding(() => root.open);
-        }
+    onOpenChanged: if (root.open)
+        root.showing = true
 
-        //  Fixed layout — the hand is five fixed-size cards, so letting the
-        //  window stretch only adds dead space beside them.
-        minimumSize: Qt.size(implicitWidth, implicitHeight)
-        maximumSize: Qt.size(implicitWidth, implicitHeight)
+    LazyLoader {
+        id: loader
+        active: root.showing
 
-        implicitWidth: root.theme.cardW * 5 + root.theme.gap * 4
-                       + root.theme.pad * 2
-        implicitHeight: root.theme.pad * 2 + root.headerH + 14 + root.payH
-                        + 14 + root.feltH + 14 + root.rackH + 14 + root.btnH
+        PanelWindow {
+            id: win
+            color: "transparent"
+            screen: root.monitor
 
-        Item {
-            id: frame
-            anchors.fill: parent
-            focus: true
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.namespace: "poker"
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+            exclusionMode: ExclusionMode.Ignore
+
+            //  The bottom-right corner, and hard against the bottom edge — the
+            //  right-hand margin is a margin, but the bottom one is not. It is
+            //  part of the window, empty, sitting under the card: the room the
+            //  card slides down through on its way off the screen.
+            anchors.right: true
+            anchors.bottom: true
+            margins.right: root.theme.edgeRight
+
+            implicitWidth: frame.implicitWidth
+            implicitHeight: frame.implicitHeight + root.theme.edgeBottom
+
+            //  1 is up, 0 is gone. The card's position is drawn from this
+            //  rather than the window being moved, so the layer surface is
+            //  laid out once and the compositor isn't resizing it sixty times
+            //  a second.
+            property real reveal: (root.open && win.entered) ? 1 : 0
+
+            //  Off until the window has finished being built, so the first
+            //  frame is drawn with the card still below the screen and it
+            //  slides up into view.
+            property bool entered: false
+
+            Component.onCompleted: Qt.callLater(() => win.entered = true)
+
+            //  Landed at the bottom, and nothing asked for it back on the way
+            //  down: let go of the window. Deferred, since dropping `showing`
+            //  destroys this window and we are standing in one of its own
+            //  handlers; re-checked on the way out in case the deferral
+            //  straddled a re-open.
+            onRevealChanged: if (win.reveal <= 0 && !root.open)
+                Qt.callLater(() => {
+                    if (!root.open)
+                        root.showing = false;
+                })
+
+            Behavior on reveal {
+                NumberAnimation {
+                    duration: root.theme.slideMs
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            //  The window is taller than the card and the difference is
+            //  transparent, which is not the same as absent — unmasked it
+            //  would swallow clicks meant for whatever is underneath.
+            mask: Region {
+                y: frame.y
+                width: frame.width
+                height: frame.height
+            }
+
+            Rectangle {
+                id: frame
+                width: win.width
+                y: win.height * (1 - win.reveal)
+                radius: 16
+                color: root.theme.bg
+                border.width: 1
+                border.color: root.theme.raised
+                focus: true
+
+                implicitWidth: root.theme.cardW * 5 + root.theme.gap * 4
+                               + root.theme.pad * 2
+                implicitHeight: root.theme.pad * 2 + root.headerH + 14 + root.payH
+                                + 14 + root.feltH + 14 + root.rackH + 14 + root.btnH
 
             Keys.onPressed: (e) => {
                 //  1-5 are two different keys depending on what is on the felt,
@@ -957,7 +1038,56 @@ Scope {
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 18
 
+                        //  Handing 200 back is a deliberate gesture, so it gets a
+                        //  button that says so rather than a hover trick on the
+                        //  counter. It sits there greyed out when the bank has
+                        //  nothing spare or there is nothing to pay off, and a
+                        //  click in that state still says why on the felt.
+                        Rectangle {
+                            id: paybackBtn
+
+                            readonly property bool ready: root.rebuys > 0 && root.credits > 200
+
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: paybackLabel.width + 18
+                            height: 26
+                            radius: root.theme.radius - 2
+                            color: paybackTap.containsMouse && paybackBtn.ready
+                                   ? root.theme.raised : "transparent"
+                            border.width: 1
+                            border.color: paybackBtn.ready ? root.theme.gold
+                                                           : root.theme.raised
+
+                            Behavior on color { ColorAnimation { duration: 110 } }
+                            Behavior on border.color { ColorAnimation { duration: 110 } }
+
+                            Text {
+                                id: paybackLabel
+                                anchors.centerIn: parent
+                                text: "PAY BACK"
+                                font.family: root.theme.font
+                                font.pixelSize: 9
+                                font.bold: true
+                                font.letterSpacing: 1.4
+                                color: paybackBtn.ready ? root.theme.gold
+                                                        : root.theme.inactive
+                                Behavior on color { ColorAnimation { duration: 110 } }
+                            }
+
+                            MouseArea {
+                                id: paybackTap
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: paybackBtn.ready ? Qt.PointingHandCursor
+                                                              : Qt.ArrowCursor
+                                onClicked: root.payBack()
+                            }
+                        }
+
+                        //  Times the bank has been emptied. A record, not a control.
                         Column {
+                            id: rebuyStat
+                            anchors.verticalCenter: parent.verticalCenter
                             spacing: 0
                             Text {
                                 anchors.right: parent.right
@@ -1395,5 +1525,6 @@ Scope {
                 }
             }
         }
+    }
     }
 }

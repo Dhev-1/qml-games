@@ -7,8 +7,7 @@
 //  run:     qs -p ~/cloon/widgames/bons/bns.qml
 //
 //  keys:    1-9 chip · -/+ or [/] bones · space play · arrows aim
-//           enter pick · g lucky pick · x cash · u undo · c clear
-//           r rebet · esc close
+//           enter pick · x cashout · u undo · c clear · r rebet · esc close
 //
 //  Edit the `theme` block below to restyle everything.
 
@@ -38,26 +37,26 @@ Scope {
     //  the same place.
     // ═══════════════════════════════════════════════════════════
     property QtObject theme: QtObject {
-        readonly property color bg:        "#16161e"
-        readonly property color surface:   "#1e1e2a"
-        readonly property color raised:    "#272733"
-        readonly property color fg:        "#ffffff"
-        readonly property color muted:     "#8a8a94"
-        readonly property color inactive:  "#6a6a7a"
-        readonly property color blue:      "#4a9eff"
-        readonly property color red:       "#ff4d5e"
-        readonly property color green:     "#3ddc84"
-        readonly property color gold:      "#ffcc4d"
+        readonly property color bg:        "#0e0b0d"
+        readonly property color surface:   "#1a1512"
+        readonly property color raised:    "#2a2320"
+        readonly property color fg:        "#e8ddc4"
+        readonly property color muted:     "#8a7f6d"
+        readonly property color inactive:  "#6a6154"
+        readonly property color blue:      "#d4af5f"
+        readonly property color red:       "#e05a6e"
+        readonly property color green:     "#7fb069"
+        readonly property color gold:      "#f0d78c"
 
-        readonly property color felt:      "#17342a"
-        readonly property color feltLine:  "#2c5646"
+        readonly property color felt:      "#142a20"
+        readonly property color feltLine:  "#274436"
 
         //  The tiles. Face down they sit a step above the felt; turned they
         //  drop back into it, so the unturned ones stay the thing to look at.
         readonly property color tileBack:  "#1f4436"
         readonly property color tileFace:  "#132b22"
 
-        readonly property color cardRed:   "#d3283a"
+        readonly property color cardRed:   "#c13a4e"
 
         readonly property int    tile:     56
         readonly property int    pad:      20
@@ -158,9 +157,9 @@ Scope {
     //  denominations are on a real floor. `chipSpot` is the colour of the edge
     //  spots and the inner ring: white against every body except the white one,
     //  which takes navy, because white spots on a white chip are no spots.
-    readonly property var chipColor: ["#e8e8ee", "#d3283a", "#2f9e5a", "#22222c"]
-    readonly property var chipSpot:  ["#2b3a63", "#ffffff", "#ffffff", "#ffffff"]
-    readonly property var chipInk:   ["#16161e", "#ffffff", "#ffffff", "#ffffff"]
+    readonly property var chipColor: ["#e8e8ee", "#c13a4e", "#2f9e5a", "#22222c"]
+    readonly property var chipSpot:  ["#55432a", "#e8ddc4", "#e8ddc4", "#e8ddc4"]
+    readonly property var chipInk:   ["#0e0b0d", "#e8ddc4", "#e8ddc4", "#e8ddc4"]
 
     readonly property var chipLadder: [1, 5, 25, 100, 1000, 5000, 25000, 100000]
 
@@ -252,14 +251,6 @@ Scope {
     readonly property int nextValue: root.found < root.safe
                                      ? root.payout(root.stake, root.bones, root.found + 1)
                                      : 0
-
-    //  What is on the felt, for the header. Once the round is over this is
-    //  what came back rather than what was on offer — a busted round reads 0,
-    //  not the pile it died one pick after being worth.
-    readonly property int riding: root.phase === "betting" ? root.wagered
-                                : root.phase === "payout"  ? root.lastWin
-                                : root.found > 0           ? root.cashValue
-                                                           : root.stake
 
     //  The meter reads this rather than `credits` directly, so a payout counts
     //  up instead of snapping to the new total.
@@ -358,6 +349,18 @@ Scope {
     function resetBank(): void {
         root.credits = 200;
         root.message = "BANK RESET";
+    }
+
+    //  The opposite gesture: hand 200 back to the house and strike one rebuy
+    //  off the tally. Must leave money to play with — paying down to zero
+    //  would only trip the next top-up and put the rebuy straight back.
+    function payBack(): bool {
+        if (root.rebuys < 1)     { root.message = "NO REBUYS TO PAY BACK";  return false; }
+        if (root.credits <= 200) { root.message = "NEED 200 SPARE TO PAY BACK"; return false; }
+        root.credits -= 200;
+        root.rebuys  -= 1;
+        root.message  = "REBUY PAID BACK";
+        return true;
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -500,7 +503,8 @@ Scope {
     }
 
     //  One box, chosen for you, from the boxes that are still down — the
-    //  house's random is no kinder or crueller than your own.
+    //  house's random is no kinder or crueller than your own. No button any
+    //  more; it lives on for scripts, over IPC.
     function luckyPick(): void {
         if (root.phase !== "picking") return;
         const down = [];
@@ -709,9 +713,9 @@ Scope {
                 ctx.reset();
 
                 const ink = {
-                    R: "#d3283a", H: "#ef6a58", D: "#7d1622",
+                    R: "#c13a4e", H: "#ef6a58", D: "#7d1622",
                     F: "#c9a86a",
-                    S: root.theme.gold, W: "#ffffff"
+                    S: root.theme.gold, W: "#e8ddc4"
                 };
 
                 const rows = tnt.art.length, cols = tnt.art[0].length;
@@ -800,17 +804,25 @@ Scope {
         id: btn
         property string label: ""
         property string hint: ""
+        //  Puts the hint on the button's right edge instead of under the
+        //  label — for the wide buttons, where a stacked hint leaves the
+        //  whole right half empty.
+        property bool   hintRight: false
         property bool   accent: false
         property bool   enabled: true
+        //  What an accent button is painted. Gold is the house default; the
+        //  cash-out wears green, because that is the colour the money is in
+        //  everywhere else on the felt.
+        property color  tint: root.theme.gold
 
         signal activated()
 
         implicitHeight: 42
         radius: 8
         color: !enabled ? root.theme.surface
-             : ma.containsMouse ? (accent ? Qt.lighter(root.theme.gold, 1.12)
+             : ma.containsMouse ? (accent ? Qt.lighter(tint, 1.12)
                                           : root.theme.raised)
-             : (accent ? root.theme.gold : root.theme.surface)
+             : (accent ? tint : root.theme.surface)
         border.width: 1
         border.color: accent ? "transparent" : root.theme.raised
 
@@ -836,8 +848,20 @@ Scope {
                 font.pixelSize: 9
                 color: !btn.enabled ? root.theme.inactive
                      : btn.accent   ? Qt.rgba(0, 0, 0, 0.55) : root.theme.muted
-                visible: btn.hint !== ""
+                visible: btn.hint !== "" && !btn.hintRight
             }
+        }
+
+        Text {
+            anchors.right: parent.right
+            anchors.rightMargin: 14
+            anchors.verticalCenter: parent.verticalCenter
+            text: btn.hint
+            font.family: root.theme.font
+            font.pixelSize: 10
+            color: !btn.enabled ? root.theme.inactive
+                 : btn.accent   ? Qt.rgba(0, 0, 0, 0.55) : root.theme.muted
+            visible: btn.hint !== "" && btn.hintRight
         }
 
         MouseArea {
@@ -846,6 +870,46 @@ Scope {
             hoverEnabled: true
             cursorShape: btn.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: if (btn.enabled) btn.activated()
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  STAT BOX — one figure on the panel, in a box of its own
+    //
+    //  Label on the left edge, figure on the right, so the numbers line up
+    //  down the panel's right side and can be read as a column.
+    // ═══════════════════════════════════════════════════════════
+    component StatBox: Rectangle {
+        id: stat
+        property string label: ""
+        property string value: ""
+        property color  ink: root.theme.fg
+
+        height: 40
+        radius: root.theme.radius
+        color: root.theme.tileFace
+        border.width: 1
+        border.color: root.theme.feltLine
+
+        Text {
+            anchors.left: parent.left
+            anchors.leftMargin: 12
+            anchors.verticalCenter: parent.verticalCenter
+            text: stat.label
+            font.family: root.theme.font
+            font.pixelSize: 9
+            font.letterSpacing: 1.4
+            color: root.theme.feltLine
+        }
+        Text {
+            anchors.right: parent.right
+            anchors.rightMargin: 12
+            anchors.verticalCenter: parent.verticalCenter
+            text: stat.value
+            font.family: root.theme.font
+            font.pixelSize: 17
+            font.bold: true
+            color: stat.ink
         }
     }
 
@@ -877,6 +941,7 @@ Scope {
         function clear(): void { root.clearBets(); }
         function rebet(): void { root.rebet(); }
         function reset(): void { root.resetBank(); }
+        function payback(): void { root.payBack(); }
 
         //  Stakes `amount` regardless of the selected chip, so a scripted
         //  round doesn't have to drive the rack first.
@@ -1084,7 +1149,6 @@ Scope {
                         else root.pick(root.cursor);
                         break;
 
-                    case Qt.Key_G: root.luckyPick(); break;
                     case Qt.Key_X: root.cash();      break;
                     case Qt.Key_U: root.undo();      break;
                     case Qt.Key_C: root.clearBets(); break;
@@ -1105,28 +1169,14 @@ Scope {
                         width: parent.width
                         height: 40
 
-                        Column {
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 2
-
-                            Text {
-                                text: "BONES"
-                                font.family: root.theme.font
-                                font.pixelSize: 15
-                                font.bold: true
-                                font.letterSpacing: 2
-                                color: root.theme.fg
-                            }
-                            Text {
-                                text: "5×5  ·  " + root.bones + " TNT  ·  "
-                                      + root.safe + " CHIPS  ·  "
-                                      + Math.round(root.rtp * 100) + "% RTP"
-                                font.family: root.theme.font
-                                font.pixelSize: 9
-                                font.letterSpacing: 1
-                                color: root.theme.muted
-                            }
+                        Text {
+                            anchors.centerIn: parent
+                            text: "BONES"
+                            font.family: root.theme.font
+                            font.pixelSize: 15
+                            font.bold: true
+                            font.letterSpacing: 2
+                            color: root.theme.fg
                         }
 
                         Row {
@@ -1134,7 +1184,56 @@ Scope {
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 18
 
+                            //  Handing 200 back is a deliberate gesture, so it gets a
+                            //  button that says so rather than a hover trick on the
+                            //  counter. It sits there greyed out when the bank has
+                            //  nothing spare or there is nothing to pay off, and a
+                            //  click in that state still says why on the felt.
+                            Rectangle {
+                                id: paybackBtn
+
+                                readonly property bool ready: root.rebuys > 0 && root.credits > 200
+
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: paybackLabel.width + 18
+                                height: 26
+                                radius: root.theme.radius - 2
+                                color: paybackTap.containsMouse && paybackBtn.ready
+                                       ? root.theme.raised : "transparent"
+                                border.width: 1
+                                border.color: paybackBtn.ready ? root.theme.gold
+                                                               : root.theme.raised
+
+                                Behavior on color { ColorAnimation { duration: 110 } }
+                                Behavior on border.color { ColorAnimation { duration: 110 } }
+
+                                Text {
+                                    id: paybackLabel
+                                    anchors.centerIn: parent
+                                    text: "PAY BACK"
+                                    font.family: root.theme.font
+                                    font.pixelSize: 9
+                                    font.bold: true
+                                    font.letterSpacing: 1.4
+                                    color: paybackBtn.ready ? root.theme.gold
+                                                            : root.theme.inactive
+                                    Behavior on color { ColorAnimation { duration: 110 } }
+                                }
+
+                                MouseArea {
+                                    id: paybackTap
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: paybackBtn.ready ? Qt.PointingHandCursor
+                                                                  : Qt.ArrowCursor
+                                    onClicked: root.payBack()
+                                }
+                            }
+
+                            //  Times the bank has been emptied. A record, not a control.
                             Column {
+                                id: rebuyStat
+                                anchors.verticalCenter: parent.verticalCenter
                                 spacing: 0
                                 Text {
                                     anchors.right: parent.right
@@ -1152,26 +1251,6 @@ Scope {
                                     font.bold: true
                                     color: root.rebuys > 0 ? root.theme.red
                                                            : root.theme.inactive
-                                }
-                            }
-
-                            Column {
-                                spacing: 0
-                                Text {
-                                    anchors.right: parent.right
-                                    text: "ON THE FIELD"
-                                    font.family: root.theme.font
-                                    font.pixelSize: 9
-                                    font.letterSpacing: 1.4
-                                    color: root.theme.inactive
-                                }
-                                Text {
-                                    anchors.right: parent.right
-                                    text: root.riding
-                                    font.family: root.theme.font
-                                    font.pixelSize: 19
-                                    font.bold: true
-                                    color: root.theme.fg
                                 }
                             }
 
@@ -1258,7 +1337,7 @@ Scope {
                                                  ? Qt.lighter(root.theme.tileBack, 1.25)
                                                  : root.theme.tileBack
                                     border.width: 1
-                                    border.color: aimed ? root.theme.gold
+                                    border.color: aimed ? root.theme.fg
                                                 : fatal ? root.theme.red
                                                 : shown ? root.theme.feltLine
                                                         : Qt.lighter(root.theme.tileBack, 1.4)
@@ -1451,86 +1530,39 @@ Scope {
 
                             // ── the price ──
                             //
-                            //  The running total and the next rung of it: what
-                            //  taking the money now returns, and what the next
-                            //  chip would make of it — the pair that makes
-                            //  every pick a decision rather than a reflex.
+                            //  Three boxes, stacked: what taking the money
+                            //  now returns, the multiplier that made it, and
+                            //  the multiplier one more chip would move it to
+                            //  — the trio that makes every pick a decision
+                            //  rather than a reflex.
                             Column {
                                 width: parent.width
-                                y: 124
-                                spacing: 14
+                                y: 110
+                                spacing: 10
                                 visible: root.phase !== "betting"
 
-                                Column {
+                                StatBox {
                                     width: parent.width
-                                    spacing: 1
-
-                                    Text {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        text: "CHIPS FOUND"
-                                        font.family: root.theme.font
-                                        font.pixelSize: 9
-                                        font.letterSpacing: 1.6
-                                        color: root.theme.feltLine
-                                    }
-                                    Text {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        text: root.found + " / " + root.safe
-                                        font.family: root.theme.font
-                                        font.pixelSize: 19
-                                        font.bold: true
-                                        color: root.theme.fg
-                                    }
-                                }
-
-                                Column {
-                                    width: parent.width
-                                    spacing: 1
                                     visible: root.found > 0
-                                             && root.phase === "picking"
-
-                                    Text {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        text: "TAKE"
-                                        font.family: root.theme.font
-                                        font.pixelSize: 9
-                                        font.letterSpacing: 1.6
-                                        color: root.theme.feltLine
-                                    }
-                                    Text {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        text: root.cashValue + "  "
-                                              + root.multText(root.multiplier(root.bones, root.found))
-                                        font.family: root.theme.font
-                                        font.pixelSize: 17
-                                        font.bold: true
-                                        color: root.theme.green
-                                    }
+                                    label: "TAKE"
+                                    value: root.cashValue
+                                    ink: root.theme.green
                                 }
 
-                                Column {
+                                StatBox {
                                     width: parent.width
-                                    spacing: 1
+                                    visible: root.found > 0
+                                    label: "MULTIPLIER"
+                                    value: root.multText(root.multiplier(root.bones, root.found))
+                                }
+
+                                StatBox {
+                                    width: parent.width
                                     visible: root.phase === "picking"
                                              && root.found < root.safe
-
-                                    Text {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        text: "NEXT CHIP"
-                                        font.family: root.theme.font
-                                        font.pixelSize: 9
-                                        font.letterSpacing: 1.6
-                                        color: root.theme.feltLine
-                                    }
-                                    Text {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        text: root.nextValue + "  "
-                                              + root.multText(root.multiplier(root.bones, root.found + 1))
-                                        font.family: root.theme.font
-                                        font.pixelSize: 17
-                                        font.bold: true
-                                        color: root.theme.gold
-                                    }
+                                    label: "NEXT MULTIPLIER"
+                                    value: root.multText(root.multiplier(root.bones, root.found + 1))
+                                    ink: root.theme.gold
                                 }
                             }
 
@@ -1654,33 +1686,22 @@ Scope {
                         }
 
                         // ── picking ──
-                        Row {
+                        //
+                        //  One button, the whole width: the only decision
+                        //  mid-round that isn't a box is leaving with the
+                        //  money. The label carries the figure, so cashing
+                        //  out is never a click on a number you had to look
+                        //  up somewhere else first.
+                        Btn {
                             width: parent.width
-                            spacing: root.theme.gap
                             visible: root.phase !== "betting"
-
-                            readonly property real btnW:
-                                (width - root.theme.gap) / 2
-
-                            Btn {
-                                width: parent.btnW
-                                label: "LUCKY BOX"
-                                hint: "g"
-                                enabled: root.phase === "picking"
-                                onActivated: root.luckyPick()
-                            }
-                            //  The label carries the figure, so cashing out is
-                            //  never a click on a number you had to look up
-                            //  somewhere else first.
-                            Btn {
-                                width: parent.btnW
-                                label: root.canCash()
-                                       ? "CASH " + root.cashValue : "CASH"
-                                hint: "x"
-                                accent: true
-                                enabled: root.canCash()
-                                onActivated: root.cash()
-                            }
+                            label: "CASHOUT"
+                            hint: "x"
+                            hintRight: true
+                            accent: true
+                            tint: root.theme.green
+                            enabled: root.canCash()
+                            onActivated: root.cash()
                         }
                     }
                 }

@@ -20,7 +20,7 @@ rather than two copies of it.
 | 1 | **RED or BLACK** | ×2 | a straight coin flip, 26 against 26 |
 | 2 | **HIGHER or LOWER** than card 1 | ×4 | equal to card 1 loses |
 | 3 | **INSIDE or OUTSIDE** cards 1–2 | ×8 | equal to either bound loses |
-| 4 | **PICK THE SUIT** | ×10 | one in four, less what is showing |
+| 4 | **PICK THE SUIT** | ×16 | one in four, less what is showing |
 
 The multipliers are **cumulative and stake-inclusive**: clearing rung 3 and
 cashing returns eight times the stake in total, not eight times on top. Rung 0 —
@@ -58,25 +58,25 @@ stop at   chance      pays     returns   house edge
 colour     50.00%      ×2     100.00%       0.00%
 high/low   36.20%      ×4     144.80%     -44.80%
 in/out     23.77%      ×8     190.17%     -90.17%
-the suit    6.31%     ×10      63.07%      36.93%
+the suit    6.31%     ×16     100.90%      -0.90%
 ---------------------------------------------------
 ```
 
-**The 2/4/8/10 ladder is not a house ladder.** Riding to INSIDE/OUTSIDE and
+**The 2/4/8/16 ladder is not a house ladder.** Riding to INSIDE/OUTSIDE and
 cashing returns 190% of every stake — a coin-flip rung followed by two rungs
 where you get to pick the better side, paid as though you did not. A player who
 never touches rung 4 roughly doubles their money per ride, forever. The bank
 file will grow without bound.
 
-Rung 4 is the only stop with a real edge, and it is a big one: 6.31% at ×10 is
-37% to the house. So the ladder is not merely generous, it is inconsistent —
-it pays you to stop at rung 3 every single time, which makes the last rung
-decoration.
+Rung 4 at ×16 is roughly a break-even bet — 6.31% of rides clear it, returning
+100.9% of the stake. It is no longer a trap, but it is still not where the money
+is: rung 3 pays nearly twice the stake back, so the felt still pays you to get
+off at INSIDE/OUTSIDE. The last rung is a swing, not an edge.
 
 The lever is `ladder` at the top of `RideTheBus.qml`:
 
 ```qml
-readonly property var ladder: [2, 4, 8, 10]
+readonly property var ladder: [2, 4, 8, 16]
 ```
 
 To put the house ~3% ahead at *every* stop, so that no rung is the obviously
@@ -140,7 +140,8 @@ reimplementing `outs()`:
             {"key":"lower","outs":28,"of":51}]}
 ```
 
-Also `toggle` · `show` · `hide` · `chip` · `undo` · `clear` · `rebet` · `reset`.
+Also `toggle` · `show` · `hide` · `chip` · `undo` · `clear` · `rebet` · `reset`
+· `payback`.
 
 ## The bank
 
@@ -152,6 +153,11 @@ would be a lost one.
 Empty the bank and it refills to 200 and the rebuy counter goes up. `reset` over
 IPC also refills it but does *not* count a rebuy: the tally is a record of being
 wiped out, and topping yourself up on purpose is the opposite.
+
+The tally can be paid down: hit **PAY BACK** beside it (or `payback` over IPC) to
+hand 200 back and strike one rebuy off it. It only works while the bank holds
+more than 200 — paying down to zero would just trip the next top-up and put the
+rebuy straight back.
 
 ## Tests
 

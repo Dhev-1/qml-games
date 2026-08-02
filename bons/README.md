@@ -26,8 +26,7 @@ command above.
 
 Click the circle to put the selected chip down, then **PLAY**. Click boxes —
 or aim with the arrows and press enter — until you either take the money
-(**CASH**, `x`) or find out where the bones were. **LUCKY BOX** (`g`) turns a
-random unopened box, for when you would rather blame the house.
+(**CASHOUT**, `x`) or find out where the bones were.
 
 The bones count is the risk dial: set it with the −/+ stepper (or `-`/`=`,
 `[`/`]`) while betting. It is remembered between sittings.
@@ -38,7 +37,6 @@ The bones count is the risk dial: set it with the −/+ stepper (or `-`/`=`,
 | `-`/`=` or `[`/`]` | fewer / more bones |
 | `space` | play |
 | arrows + `enter` | aim and turn a box |
-| `g` | lucky box |
 | `x` | cash out |
 | `u` / `c` / `r` | undo / clear / rebet |
 | `esc` | close |
@@ -60,7 +58,9 @@ everywhere except a couple of its own typos, which the tests document.
 
 The bank starts at 200, persists in
 `~/.local/state/quickshell/by-shell/<id>/bank.json`, and refills itself (and
-counts the rebuy) when you lose the lot.
+counts the rebuy) when you lose the lot. Hit **PAY BACK** beside the tally (or `payback`
+over IPC) to hand 200 back and strike one rebuy off the tally — allowed only
+while the bank holds more than 200.
 
 ## Tests
 
