@@ -4,7 +4,9 @@
 //
 //  keys:    1-4 chip · space spin · u undo · c clear · r rebet · esc close
 //
-//  Edit the `theme` block below to restyle everything.
+//  Colours follow the house's active table when there is a house; the
+//  `theme` block below is the fallback, and the thing to edit to restyle a
+//  standalone run.
 
 import QtQuick
 import Quickshell
@@ -15,28 +17,74 @@ ShellRoot {
     id: root
 
     // ═══════════════════════════════════════════════════════════
-    //  THEME — the only block you normally touch
+    //  THEME — the table if one is set, these values if not
     // ═══════════════════════════════════════════════════════════
+    //  THE ACTIVE TABLE
+    //
+    //  The house writes its chosen table to ~/.config/house/table.json whenever
+    //  one is picked, and the theme block below reads through this — so
+    //  switching tables in the bar retints the felt without restarting, even
+    //  mid-hand. Every key falls back to the value it always had, so this file
+    //  being absent is not a fault: it is what running the games on their own,
+    //  with no house at all, looks like.
+    property var table: ({})
+
+    FileView {
+        id: tableFile
+
+        path: {
+            const xdg = Quickshell.env("XDG_CONFIG_HOME");
+            const dir = xdg && xdg.length > 0 ? xdg : `${Quickshell.env("HOME")}/.config`;
+            return `${dir}/house/table.json`;
+        }
+
+        //  Read before the first frame, or the widget paints in the fallback
+        //  palette and then snaps to the table's a frame later.
+        blockLoading: true
+        watchChanges: true
+        printErrors: false
+
+        onFileChanged: tableFile.reload()
+        onLoaded: {
+            //  A half-written file is a real possibility — apply-theme.sh is
+            //  rewriting it at the exact moment the watch fires. Keep the last
+            //  good palette rather than dropping to the fallback and flashing.
+            try {
+                root.table = JSON.parse(tableFile.text());
+            } catch (e) {
+                console.warn("table.json is not valid JSON, keeping current colours");
+            }
+        }
+
+        //  No house, or no table chosen yet. The fallbacks below have it.
+        onLoadFailed: root.table = ({})
+
+        //  blockLoading blocks a *read*, but nothing has asked for one yet —
+        //  same trick the bank uses. Without this the first paint is the
+        //  fallback palette. See the note on bankFile.
+        Component.onCompleted: tableFile.text()
+    }
+
     property QtObject theme: QtObject {
-        readonly property color bg:        "#0e0b0d"
-        readonly property color surface:   "#1a1512"
-        readonly property color raised:    "#2a2320"
-        readonly property color fg:        "#e8ddc4"
-        readonly property color muted:     "#8a7f6d"
-        readonly property color inactive:  "#6a6154"
-        readonly property color blue:      "#d4af5f"
-        readonly property color green:     "#7fb069"
-        readonly property color gold:      "#f0d78c"
+        readonly property color bg:        root.table.bg ?? "#0e0b0d"
+        readonly property color surface:   root.table.surface ?? "#1a1512"
+        readonly property color raised:    root.table.raised ?? "#2a2320"
+        readonly property color fg:        root.table.fg ?? "#e8ddc4"
+        readonly property color muted:     root.table.muted ?? "#8a7f6d"
+        readonly property color inactive:  root.table.inactive ?? "#6a6154"
+        readonly property color blue:      root.table.blue ?? "#d4af5f"
+        readonly property color green:     root.table.green ?? "#7fb069"
+        readonly property color gold:      root.table.gold ?? "#f0d78c"
 
-        readonly property color felt:      "#142a20"
-        readonly property color feltLine:  "#274436"
-        readonly property color numRed:    "#a4243b"
-        readonly property color numBlack:  "#16110f"
-        readonly property color numGreen:  "#12684a"
+        readonly property color felt:      root.table.felt ?? "#142a20"
+        readonly property color feltLine:  root.table.feltLine ?? "#274436"
+        readonly property color numRed:    root.table.numRed ?? "#a4243b"
+        readonly property color numBlack:  root.table.numBlack ?? "#16110f"
+        readonly property color numGreen:  root.table.numGreen ?? "#12684a"
 
-        readonly property color wheelRim:  "#3a2a1c"
-        readonly property color wheelHub:  "#241a12"
-        readonly property color fret:      "#6b5b46"
+        readonly property color wheelRim:  root.table.wheelRim ?? "#3a2a1c"
+        readonly property color wheelHub:  root.table.wheelHub ?? "#241a12"
+        readonly property color fret:      root.table.fret ?? "#6b5b46"
 
         readonly property int    pad:      20
         readonly property int    gap:      10
