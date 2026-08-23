@@ -9,6 +9,10 @@
 //  keys:    1-9 chip · -/+ or [/] bones · space play · arrows aim
 //           enter pick · x cashout · u undo · c clear · r rebet · esc close
 //
+//  mouse:   a box turns it; a press and a sweep across the field claims every
+//           box it crosses and turns them one at a time, in the order the
+//           hand went, stopping at the one that ends the round.
+//
 //  Colours follow the house's active table when there is a house; the
 //  `theme` block below is the fallback, and the thing to edit to restyle a
 //  standalone run.
@@ -115,6 +119,14 @@ Scope {
         readonly property int    edgeRight:  44 + 14
         readonly property int    edgeBottom: 10 + 14
         readonly property int    slideMs:    260
+
+        //  The two halves of a sweep's timing. `leadMs` is the pause between
+        //  letting go and the first box turning — the held breath, and the
+        //  only part of this the player is meant to feel as waiting.
+        //  `flipMs` is the gap between the turns once they start, which
+        //  wants to be quick: the run is one event, not five.
+        readonly property int    leadMs:     480
+        readonly property int    flipMs:     110
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -277,6 +289,27 @@ Scope {
     //  Where the keyboard is aimed. The centre box to start, because that is
     //  where the eye starts.
     property int cursor: 12
+
+    //  Which box the pointer is over, or -1 for none — including the gaps
+    //  between boxes, which are part of the field's area but not of any box.
+    //  Held here rather than per-box because the whole field is one mouse
+    //  area now (see THE DRAG), and a box cannot ask a mouse area it doesn't
+    //  own whether it is under the cursor.
+    property int hoverIndex: -1
+
+    //  Boxes a sweep has claimed but that have not been turned yet, in the
+    //  order they were crossed. The drag fills this; `flipTimer` empties it
+    //  one box at a time, so a row dragged in a tenth of a second still
+    //  arrives as five separate turns rather than as one flat reveal.
+    property var queue: []
+
+    //  Whether the button is still down. Nothing turns while it is: the sweep
+    //  is one gesture, and the field waits until it is finished being made.
+    property bool sweeping: false
+
+    //  Whether the lead-in has elapsed and the queue is being turned. Between
+    //  letting go and this going true is the pause.
+    property bool dealing: false
 
     //  Chips in the circle, in the order they went down — so undo is a pop and
     //  the total is a sum.
@@ -508,6 +541,7 @@ Scope {
         //  `revealed` reads undefined 25 times over.
         root.revealed = root.buildField(0);      // 25 falses, same shape
         root.field    = root.buildField(root.bones);
+        root.clearQueue();
         root.found    = 0;
         root.bustAt   = -1;
         root.outcome  = "";
@@ -550,6 +584,123 @@ Scope {
         root.message = "";
     }
 
+    // ═══════════════════════════════════════════════════════════
+    //  THE DRAG
+    //
+    //  A press and a sweep turns every box the pointer crosses, in the order
+    //  it crosses them — a row cleared in one gesture rather than five clicks.
+    //  It is exactly five picks: a bone half way along ends the round there
+    //  and the rest of the sweep lands on a field that no longer takes picks,
+    //  so the tail of the gesture is dropped rather than played out.
+    //
+    //  This lives up here, in the geometry, because the field is drawn by a
+    //  Grid and a Repeater: the boxes are laid out by their container and none
+    //  of them knows where it is. Turning a point into an index is arithmetic
+    //  on the same three numbers the Grid was given.
+    // ═══════════════════════════════════════════════════════════
+    //  The box containing a point in the field's own coordinates, or -1 for
+    //  the gaps between boxes and anything outside the grid.
+    function boxAt(x, y): int {
+        const step = root.theme.tile + root.theme.gap;
+        const col = Math.floor(x / step);
+        const row = Math.floor(y / step);
+        if (col < 0 || col > 4 || row < 0 || row > 4) return -1;
+        //  Past the box and into the gap after it.
+        if (x - col * step >= root.theme.tile) return -1;
+        if (y - row * step >= root.theme.tile) return -1;
+        return row * 5 + col;
+    }
+
+    //  Claim a box for the sweep. Nothing is turned here — the queue is what
+    //  the drag produces, and the timer below is the only thing that turns
+    //  anything, so the boxes flip at the game's pace rather than the hand's.
+    function queuePick(i): void {
+        if (root.phase !== "picking") return;
+        if (i < 0 || i >= root.cells) return;
+        //  Already turned, or already spoken for by this same sweep — a hand
+        //  that wavers back over a box must not buy it twice.
+        if (root.revealed[i] === true) return;
+        if (root.queue.indexOf(i) >= 0) return;
+        root.queue = root.queue.concat([i]);
+    }
+
+    //  Every box on the segment from one point to another, claimed in order.
+    //  Sampling only where the mouse events land would skip boxes on a quick
+    //  sweep — the pointer can cross a whole box between two frames — and a
+    //  gesture that turns three of the five you dragged over is worse than
+    //  one that turns none.
+    function sweepAlong(x0, y0, x1, y1): void {
+        if (root.phase !== "picking") return;
+
+        const dx = x1 - x0, dy = y1 - y0;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        //  Fine enough that no box, and no gap, can fall between two samples.
+        const stride = Math.max(2, root.theme.gap / 2);
+        const steps = Math.max(1, Math.ceil(dist / stride));
+
+        for (let s = 1; s <= steps; s++)
+            root.queuePick(root.boxAt(x0 + dx * s / steps, y0 + dy * s / steps));
+    }
+
+    function clearQueue(): void {
+        if (root.queue.length > 0) root.queue = [];
+        root.dealing = false;
+        leadTimer.stop();
+    }
+
+    //  Letting go is what commits a sweep. One box is a click and is dealt on
+    //  the spot — there is no run to build up to, and a pause before a single
+    //  box turns is just lag. More than one gets the lead-in.
+    function release(): void {
+        root.sweeping = false;
+        if (root.dealing || root.queue.length === 0) return;
+        if (root.queue.length === 1) root.dealing = true;
+        else leadTimer.restart();
+    }
+
+    //  The held breath. Everything the sweep claimed is sitting marked on the
+    //  felt through this, which is the whole of the effect: the player can see
+    //  exactly what they have bought and has to wait to find out what it was.
+    Timer {
+        id: leadTimer
+        interval: root.theme.leadMs
+        repeat: false
+        onTriggered: if (root.phase === "picking" && root.queue.length > 0)
+                         root.dealing = true;
+    }
+
+    //  The run itself: one box per tick, oldest first, starting the instant
+    //  `dealing` goes true rather than an interval after it — the lead-in was
+    //  the wait, and charging for it twice would show.
+    //
+    //  Only ever runs against a queue nobody is still adding to, because the
+    //  button is up by the time `dealing` is true. That is what keeps the
+    //  cadence honest: an earlier version drained the queue as the drag filled
+    //  it, and a timer that restarts on every claim never reaches its own
+    //  interval — it turned the field as fast as the hand moved.
+    //
+    //  A bone part way through drops the phase out of "picking", which stops
+    //  this and strands the rest of the queue; `finish` throws it away. The
+    //  boxes the player dragged over after the one that killed them were never
+    //  going to be turned.
+    Timer {
+        id: flipTimer
+        interval: root.theme.flipMs
+        repeat: true
+        triggeredOnStart: true
+        running: root.dealing && root.phase === "picking"
+                 && root.queue.length > 0
+
+        onTriggered: {
+            const next = root.queue.slice();
+            const i = next.shift();
+            root.queue = next;
+            root.pick(i);
+            //  Run's over — back to waiting on the next gesture.
+            if (next.length === 0) root.dealing = false;
+        }
+    }
+
     //  One box, chosen for you, from the boxes that are still down — the
     //  house's random is no kinder or crueller than your own. No button any
     //  more; it lives on for scripts, over IPC.
@@ -575,6 +726,9 @@ Scope {
     //  Every ending goes through here: the bank moves once, the message is
     //  written once, and the clear-down is one timer rather than three.
     function finish(ret): void {
+        //  Whatever the sweep still had coming is void the moment the round
+        //  is over — including a cash-out taken with boxes still queued.
+        root.clearQueue();
         root.credits += ret;
         root.lastWin  = ret;
         root.phase    = "payout";
@@ -1334,107 +1488,187 @@ Scope {
                         border.color: root.theme.feltLine
 
                         // ── the field ──
-                        Grid {
+                        //
+                        //  The Grid and the one mouse area over it share this
+                        //  frame, so the arithmetic in `boxAt` is done in the
+                        //  same coordinates the Grid lays the boxes out in.
+                        Item {
+                            id: fieldArea
                             x: root.theme.pad
                             y: (root.tableH - root.gridSize) / 2
-                            columns: 5
-                            spacing: root.theme.gap
+                            width: root.gridSize
+                            height: root.gridSize
 
-                            Repeater {
-                                model: root.cells
+                            Grid {
+                                columns: 5
+                                spacing: root.theme.gap
 
-                                Rectangle {
-                                    id: box
-                                    required property int index
+                                Repeater {
+                                    model: root.cells
 
-                                    //  What is under it, once there is a field
-                                    //  at all — between rounds both arrays are
-                                    //  empty and every box is just a box.
-                                    readonly property bool live:
-                                        root.field.length === root.cells
-                                    //  `=== true` so a lookup past either
-                                    //  array's end is false rather than
-                                    //  undefined-assigned-to-bool.
-                                    readonly property bool bone:
-                                        live && root.field[index] === true
-                                    //  Turned by the player, or turned by the
-                                    //  round ending — the payout flips the
-                                    //  whole field so the player sees what
-                                    //  they were standing on.
-                                    readonly property bool picked:
-                                        live && root.revealed[index] === true
-                                    readonly property bool shown:
-                                        picked || (live && root.phase === "payout")
-                                    readonly property bool fatal:
-                                        root.bustAt === index
-                                    readonly property bool aimed:
-                                        root.phase === "picking"
-                                        && root.cursor === index
+                                    Rectangle {
+                                        id: box
+                                        required property int index
 
-                                    width: root.theme.tile
-                                    height: root.theme.tile
-                                    radius: root.theme.radius
+                                        //  What is under it, once there is a
+                                        //  field at all — between rounds both
+                                        //  arrays are empty and every box is
+                                        //  just a box.
+                                        readonly property bool live:
+                                            root.field.length === root.cells
+                                        //  `=== true` so a lookup past either
+                                        //  array's end is false rather than
+                                        //  undefined-assigned-to-bool.
+                                        readonly property bool bone:
+                                            live && root.field[index] === true
+                                        //  Turned by the player, or turned by
+                                        //  the round ending — the payout flips
+                                        //  the whole field so the player sees
+                                        //  what they were standing on.
+                                        readonly property bool picked:
+                                            live && root.revealed[index] === true
+                                        readonly property bool shown:
+                                            picked || (live && root.phase === "payout")
+                                        readonly property bool fatal:
+                                            root.bustAt === index
+                                        readonly property bool aimed:
+                                            root.phase === "picking"
+                                            && root.cursor === index
+                                        //  The pointer's box comes from the
+                                        //  field's mouse area rather than from
+                                        //  one of this box's own, because a
+                                        //  drag that began on a neighbour never
+                                        //  reaches a mouse area in here: the
+                                        //  press grabs the one it landed on and
+                                        //  keeps it until the button comes up.
+                                        readonly property bool under:
+                                            root.hoverIndex === index
+                                        //  Claimed by the sweep and waiting on
+                                        //  the timer. Marked, so the player can
+                                        //  see how far the drag reached before
+                                        //  the field has caught up with it.
+                                        readonly property bool queued:
+                                            root.queue.indexOf(index) >= 0
 
-                                    //  Face down a step above the felt; turned,
-                                    //  dropped back into it — except the fatal
-                                    //  box, which gets the red it earned.
-                                    color: fatal ? Qt.rgba(0.83, 0.16, 0.23, 0.30)
-                                         : shown ? root.theme.tileFace
-                                         : boxArea.containsMouse
-                                           && root.phase === "picking"
-                                                 ? Qt.lighter(root.theme.tileBack, 1.25)
-                                                 : root.theme.tileBack
-                                    border.width: 1
-                                    border.color: aimed ? root.theme.fg
-                                                : fatal ? root.theme.red
-                                                : shown ? root.theme.feltLine
-                                                        : Qt.lighter(root.theme.tileBack, 1.4)
+                                        width: root.theme.tile
+                                        height: root.theme.tile
+                                        radius: root.theme.radius
 
-                                    Behavior on color { ColorAnimation { duration: 120 } }
+                                        //  Face down a step above the felt;
+                                        //  turned, dropped back into it —
+                                        //  except the fatal box, which gets the
+                                        //  red it earned.
+                                        color: fatal ? Qt.rgba(0.83, 0.16, 0.23, 0.30)
+                                             : shown ? root.theme.tileFace
+                                             : queued ? Qt.lighter(root.theme.tileBack, 1.4)
+                                             : under && root.phase === "picking"
+                                                     ? Qt.lighter(root.theme.tileBack, 1.25)
+                                                     : root.theme.tileBack
+                                        border.width: 1
+                                        border.color: queued ? root.theme.gold
+                                                    : aimed ? root.theme.fg
+                                                    : fatal ? root.theme.red
+                                                    : shown ? root.theme.feltLine
+                                                            : Qt.lighter(root.theme.tileBack, 1.4)
 
-                                    //  Boxes the player turned themselves keep
-                                    //  full strength; the ones the payout
-                                    //  turned for them fade back, so the round
-                                    //  the player actually played stays
-                                    //  legible on the flipped field.
-                                    Item {
-                                        anchors.fill: parent
-                                        opacity: !box.shown ? 0
-                                               : box.picked || box.fatal ? 1 : 0.35
-                                        scale: box.shown ? 1 : 0.6
+                                        Behavior on color { ColorAnimation { duration: 120 } }
 
-                                        Behavior on opacity { NumberAnimation { duration: 160 } }
-                                        Behavior on scale {
-                                            NumberAnimation {
-                                                duration: 180
-                                                easing.type: Easing.OutBack
+                                        //  Boxes the player turned themselves
+                                        //  keep full strength; the ones the
+                                        //  payout turned for them fade back, so
+                                        //  the round the player actually played
+                                        //  stays legible on the flipped field.
+                                        Item {
+                                            anchors.fill: parent
+                                            opacity: !box.shown ? 0
+                                                   : box.picked || box.fatal ? 1 : 0.35
+                                            scale: box.shown ? 1 : 0.6
+
+                                            Behavior on opacity { NumberAnimation { duration: 160 } }
+                                            Behavior on scale {
+                                                NumberAnimation {
+                                                    duration: 180
+                                                    easing.type: Easing.OutBack
+                                                }
+                                            }
+
+                                            Prize {
+                                                anchors.centerIn: parent
+                                                dim: root.theme.tile - 16
+                                                visible: box.shown && !box.bone
+                                            }
+
+                                            Dynamite {
+                                                anchors.centerIn: parent
+                                                dim: root.theme.tile - 14
+                                                hot: box.fatal
+                                                visible: box.shown && box.bone
                                             }
                                         }
-
-                                        Prize {
-                                            anchors.centerIn: parent
-                                            dim: root.theme.tile - 16
-                                            visible: box.shown && !box.bone
-                                        }
-
-                                        Dynamite {
-                                            anchors.centerIn: parent
-                                            dim: root.theme.tile - 14
-                                            hot: box.fatal
-                                            visible: box.shown && box.bone
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        id: boxArea
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: root.canPick(box.index)
-                                                     ? Qt.PointingHandCursor
-                                                     : Qt.ArrowCursor
-                                        onClicked: root.pick(box.index)
                                     }
                                 }
+                            }
+
+                            //  One mouse area over the whole field rather than
+                            //  one per box: a sweep is a single press, and the
+                            //  press grab means only the area it landed on will
+                            //  hear the rest of the gesture. Over the grid it
+                            //  hears all of it, and `boxAt` turns each point
+                            //  back into the box the player is over.
+                            MouseArea {
+                                id: sweep
+                                anchors.fill: parent
+                                hoverEnabled: true
+
+                                //  The last point the sweep was priced from, so
+                                //  each move picks the boxes on the segment
+                                //  since the previous one and no box is counted
+                                //  twice.
+                                property real lastX: 0
+                                property real lastY: 0
+
+                                cursorShape: root.canPick(root.hoverIndex)
+                                             ? Qt.PointingHandCursor
+                                             : Qt.ArrowCursor
+
+                                onPositionChanged: (m) => {
+                                    root.hoverIndex = root.boxAt(m.x, m.y);
+                                    if (!sweep.pressed) return;
+                                    root.sweepAlong(sweep.lastX, sweep.lastY, m.x, m.y);
+                                    sweep.lastX = m.x;
+                                    sweep.lastY = m.y;
+                                }
+
+                                //  The press claims the first box rather than
+                                //  turning it. A click and a drag are the same
+                                //  gesture until the button comes up — there is
+                                //  no telling them apart at this point, so
+                                //  neither is treated as special here and
+                                //  `release` sorts them out instead.
+                                onPressed: (m) => {
+                                    sweep.lastX = m.x;
+                                    sweep.lastY = m.y;
+                                    root.sweeping = true;
+                                    //  Pressing again during the lead-in is
+                                    //  still adding to the sweep, so the pause
+                                    //  starts over from the new release rather
+                                    //  than going off with a hand still down.
+                                    if (!root.dealing) leadTimer.stop();
+                                    root.hoverIndex = root.boxAt(m.x, m.y);
+                                    root.queuePick(root.hoverIndex);
+                                }
+
+                                onReleased: root.release()
+
+                                //  The grab can be taken away rather than given
+                                //  up — the window losing focus mid-drag, say.
+                                //  That is still a finished gesture, and the
+                                //  boxes are already claimed either way.
+                                onCanceled: root.release()
+
+                                //  A drag can leave the grid without releasing;
+                                //  nothing should stay lit behind it.
+                                onExited: root.hoverIndex = -1
                             }
                         }
 
