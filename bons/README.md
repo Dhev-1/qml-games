@@ -15,7 +15,7 @@ icons are a skin, swapped in one place.)
 ## Run
 
 ```sh
-qs -p ~/cloon/widgames/bons/bns.qml
+qs -p ~/cloon/newdot/games/bons/bns.qml
 ```
 
 **Closing quits it.** `esc`, the compositor's close and `ipc call bones hide`

@@ -19,14 +19,9 @@ ShellRoot {
     // ═══════════════════════════════════════════════════════════
     //  THEME — the table if one is set, these values if not
     // ═══════════════════════════════════════════════════════════
-    //  THE ACTIVE TABLE
-    //
-    //  The house writes its chosen table to ~/.config/house/table.json whenever
-    //  one is picked, and the theme block below reads through this — so
-    //  switching tables in the bar retints the felt without restarting, even
-    //  mid-hand. Every key falls back to the value it always had, so this file
-    //  being absent is not a fault: it is what running the games on their own,
-    //  with no house at all, looks like.
+    //  THE ACTIVE TABLE — read from ~/.config/house/table.json, watched, with a
+    //  fallback for every key. Blackjack.qml has the full note, and the reasons
+    //  for blockLoading, the try/catch and the Component.onCompleted read.
     property var table: ({})
 
     FileView {
@@ -38,17 +33,12 @@ ShellRoot {
             return `${dir}/house/table.json`;
         }
 
-        //  Read before the first frame, or the widget paints in the fallback
-        //  palette and then snaps to the table's a frame later.
         blockLoading: true
         watchChanges: true
         printErrors: false
 
         onFileChanged: tableFile.reload()
         onLoaded: {
-            //  A half-written file is a real possibility — apply-theme.sh is
-            //  rewriting it at the exact moment the watch fires. Keep the last
-            //  good palette rather than dropping to the fallback and flashing.
             try {
                 root.table = JSON.parse(tableFile.text());
             } catch (e) {
@@ -56,12 +46,8 @@ ShellRoot {
             }
         }
 
-        //  No house, or no table chosen yet. The fallbacks below have it.
         onLoadFailed: root.table = ({})
 
-        //  blockLoading blocks a *read*, but nothing has asked for one yet —
-        //  same trick the bank uses. Without this the first paint is the
-        //  fallback palette. See the note on bankFile.
         Component.onCompleted: tableFile.text()
     }
 
@@ -368,22 +354,16 @@ ShellRoot {
     property int  credits:   200
     property int  chipIndex: 1
 
-    //  How many times the bank has been emptied and refilled. A lifetime tally,
-    //  not a per-session one — it rides in the state file next to the bank,
-    //  which is the whole point of it.
+    //  A lifetime tally, not a per-session one: it rides in the state file next
+    //  to the bank, which is the whole point of it.
     property int  losses:    0
 
     //  ── the bank on disk ───────────────────────────────────────
-    //  Closing quits the process, so without this the bank would reset to 200
-    //  every time the window went away. One small JSON file under
-    //  `~/.local/state/quickshell/by-shell/<id>/`, holding the only thing worth
-    //  carrying between sittings.
-    //
-    //  `statePath` hashes the *canonical* config path, so it resolves to the
-    //  same file whether this is launched as `rolt/roulette.qml` or as
-    //  `edge/../widgames/rolt/roulette.qml` the way the poker tab launches
-    //  poker. Verified, because a bank that silently forked per launch spelling
-    //  would look exactly like a bank that doesn't persist at all.
+    //  One small JSON file under `~/.local/state/quickshell/by-shell/<id>/`, so
+    //  the bank survives the window closing. `statePath` hashes the canonical
+    //  config path, so the same file is found whichever spelling launched the
+    //  widget — verified, since a bank that forked per launch spelling would
+    //  look exactly like one that never persisted. See Blackjack.qml.
     FileView {
         id: bankFile
 
@@ -393,10 +373,9 @@ ShellRoot {
         //  200 and then flickers to the real figure.
         blockLoading: true
 
-        //  And written synchronously. The file is thirty bytes, so the cost is
-        //  nothing, and it buys two things: chips placed in quick succession
-        //  cannot leave writes racing each other, and the last write is on disk
-        //  before `Qt.quit()` returns — which matters when closing *is* quitting.
+        //  And written synchronously: chips placed in quick succession cannot
+        //  leave writes racing, and the last write lands before `Qt.quit()`
+        //  returns. Thirty bytes, so it costs nothing.
         blockWrites: true
         atomicWrites: true
 
@@ -415,19 +394,11 @@ ShellRoot {
         }
     }
 
-    //  Explicit copy rather than `credits: bank.credits`, which would be a
-    //  binding that silently dies at the first wager. The file is the source at
-    //  startup and a mirror from then on.
+    //  An explicit copy, not a binding — see Blackjack.qml.
     Component.onCompleted: {
-        //  This `text()` looks pointless and is not — do not delete it.
-        //  `blockLoading` blocks a read, but nothing has *asked* for one yet at
-        //  this point: FileView's own load lands on `onLoaded`, which fires
-        //  after this handler. Read `bank.credits` here without forcing the load
-        //  and it is still the default 200, which then gets written straight
-        //  back over the real figure — the bank silently resets to 200 on every
-        //  launch while looking, from the file's contents, like it is working.
-        //  Touching `text()` performs the blocking read, so the line below sees
-        //  the file. Caught by relaunching after a loss, not by the tests.
+        //  This `text()` looks pointless and is not — do not delete it, or the
+        //  bank silently resets to 200 on every launch. See Blackjack.qml.
+        //  Caught by relaunching after a loss, not by the tests.
         bankFile.text();
         root.credits = bank.credits;
         root.losses  = bank.losses;
@@ -469,9 +440,7 @@ ShellRoot {
         root.message = "BANK RESET";
     }
 
-    //  The opposite gesture: hand 200 back to the house and strike one rebuy
-    //  off the tally. Must leave money to play with — paying down to zero
-    //  would only trip the next top-up and put the rebuy straight back.
+    //  Hand 200 back and strike one rebuy off the tally. See Blackjack.qml.
     function payBack(): bool {
         if (root.losses < 1)     { root.message = "NO REBUYS TO PAY BACK";  return false; }
         if (root.credits <= 200) { root.message = "NEED 200 SPARE TO PAY BACK"; return false; }
@@ -981,9 +950,8 @@ ShellRoot {
                 ctx.fillStyle = chip.body;
                 ctx.fill();
 
-                //  Eight spots on 45° centres. Each is the wedge between the
-                //  rim and `stop`, which is why they read as cut out of the
-                //  edge rather than painted onto it.
+                //  Eight spots on 45° centres, cut out of the rim rather than
+                //  painted on. See Blackjack.qml.
                 const half = 9 * Math.PI / 180;
                 for (let i = 0; i < 8; i++) {
                     const a = i * Math.PI / 4;
@@ -1287,17 +1255,11 @@ ShellRoot {
                                 color: root.theme.fg
                             }
 
-                            //  Times the bank has been emptied. Sits in the
-                            //  header rather than beside WAGERED and WIN
-                            //  because those two reset every round and this
-                            //  one never does — and it is the one number here
-                            //  that outlives the window.
-                            //  A record, not a control — handing 200 back is a
-                            //  deliberate gesture, so it gets a button of its
-                            //  own beside the tally rather than a hover trick
-                            //  on it. The button greys out when the bank has
-                            //  nothing spare or there is nothing to pay off,
-                            //  and a click in that state still says why.
+                            //  Times the bank has been emptied. In the header
+                            //  rather than beside WAGERED and WIN, because
+                            //  those reset every round and this never does.
+                            //  A record, not a control: paying 200 back gets a
+                            //  button of its own. See Blackjack.qml.
                             Row {
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter

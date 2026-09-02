@@ -25,14 +25,9 @@ import Quickshell.Wayland
 Scope {
     id: root
 
-    // The screen to open on. Null takes the compositor's default, which is what
-    // the standalone wrapper wants; edge binds it to the focused monitor.
+    // The screen to open on, and whether closing quits or only hides. Both as
+    // in Blackjack.qml.
     property var monitor: null
-
-    // True only under bns.qml, where this is the whole process: there, closing
-    // is quitting. Inside edge the shell outlives the game, so closing only
-    // hides it — and the window is destroyed either way, so the felt and the
-    // field stop costing anything the moment it goes.
     property bool standalone: false
 
     // ═══════════════════════════════════════════════════════════
@@ -42,14 +37,9 @@ Scope {
     //  widgets that share a corner should arrive in the same colours as well as
     //  the same place.
     // ═══════════════════════════════════════════════════════════
-    //  THE ACTIVE TABLE
-    //
-    //  The house writes its chosen table to ~/.config/house/table.json whenever
-    //  one is picked, and the theme block below reads through this — so
-    //  switching tables in the bar retints the felt without restarting, even
-    //  mid-hand. Every key falls back to the value it always had, so this file
-    //  being absent is not a fault: it is what running the games on their own,
-    //  with no house at all, looks like.
+    //  THE ACTIVE TABLE — read from ~/.config/house/table.json, watched, with a
+    //  fallback for every key. Blackjack.qml has the full note, and the reasons
+    //  for blockLoading, the try/catch and the Component.onCompleted read.
     property var table: ({})
 
     FileView {
@@ -61,17 +51,12 @@ Scope {
             return `${dir}/house/table.json`;
         }
 
-        //  Read before the first frame, or the widget paints in the fallback
-        //  palette and then snaps to the table's a frame later.
         blockLoading: true
         watchChanges: true
         printErrors: false
 
         onFileChanged: tableFile.reload()
         onLoaded: {
-            //  A half-written file is a real possibility — apply-theme.sh is
-            //  rewriting it at the exact moment the watch fires. Keep the last
-            //  good palette rather than dropping to the fallback and flashing.
             try {
                 root.table = JSON.parse(tableFile.text());
             } catch (e) {
@@ -79,12 +64,8 @@ Scope {
             }
         }
 
-        //  No house, or no table chosen yet. The fallbacks below have it.
         onLoadFailed: root.table = ({})
 
-        //  blockLoading blocks a *read*, but nothing has asked for one yet —
-        //  same trick the bank uses. Without this the first paint is the
-        //  fallback palette. See the note on bankFile.
         Component.onCompleted: tableFile.text()
     }
 
@@ -213,10 +194,7 @@ Scope {
     // ═══════════════════════════════════════════════════════════
     //  GAME STATE
     // ═══════════════════════════════════════════════════════════
-    //  The house progression — white, red, green, black — which is what these
-    //  denominations are on a real floor. `chipSpot` is the colour of the edge
-    //  spots and the inner ring: white against every body except the white one,
-    //  which takes navy, because white spots on a white chip are no spots.
+    //  The house progression — white, red, green, black. See Blackjack.qml.
     readonly property var chipColor: ["#e8e8ee", "#c13a4e", "#2f9e5a", "#22222c"]
     readonly property var chipSpot:  ["#55432a", "#e8ddc4", "#e8ddc4", "#e8ddc4"]
     readonly property var chipInk:   ["#0e0b0d", "#e8ddc4", "#e8ddc4", "#e8ddc4"]
@@ -247,9 +225,7 @@ Scope {
     property int  credits:   200
     property int  chipIndex: 1
 
-    //  How many times the bank has been emptied and put back. Kept beside the
-    //  credits on disk, because a tally that reset every launch would only ever
-    //  read 0 or 1.
+    //  Rebuys, kept beside the credits on disk. See Blackjack.qml.
     property int  rebuys:    0
 
     //  betting · picking · payout
@@ -341,12 +317,9 @@ Scope {
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  THE BANK ON DISK
-    //
-    //  Closing quits the process, so without this the bank would reset to 200
-    //  every time the window went away. One small JSON file under
-    //  `~/.local/state/quickshell/by-shell/<id>/`, holding the only things
-    //  worth carrying between sittings.
+    //  THE BANK ON DISK — one small JSON file under
+    //  `~/.local/state/quickshell/by-shell/<id>/`, so the bank survives the
+    //  window closing. See Blackjack.qml for the full note.
     // ═══════════════════════════════════════════════════════════
     FileView {
         id: bankFile
@@ -378,21 +351,13 @@ Scope {
         }
     }
 
-    //  Explicit copy rather than `credits: bank.credits`, which would be a
-    //  binding that silently dies at the first wager. The file is the source at
-    //  startup and a mirror from then on.
+    //  An explicit copy, not a binding — see Blackjack.qml.
     Component.onCompleted: {
-        //  This `text()` looks pointless and is not — do not delete it.
-        //  `blockLoading` blocks a read, but nothing has *asked* for one yet at
-        //  this point: FileView's own load lands on `onLoaded`, which fires
-        //  after this handler. Read `bank.credits` here without forcing the
-        //  load and it is still the default 200, which then gets written
-        //  straight back over the real figure.
+        //  This `text()` looks pointless and is not — do not delete it, or
+        //  the bank silently resets to 200 on every launch. See Blackjack.qml.
         bankFile.text();
         root.credits = bank.credits;
-        //  Read before topUp(), which is the thing that increments it — a
-        //  launch onto an empty bank is a wipeout like any other, and it has to
-        //  count from the figure on disk rather than from zero.
+        //  Read before topUp(), which increments it. See Blackjack.qml.
         root.rebuys = bank.rebuys;
         //  Clamped on the way in, so a hand-edited file cannot deal a field of
         //  25 bones and no chips.
@@ -413,10 +378,8 @@ Scope {
         bankFile.writeAdapter();
     }
 
-    //  The smallest chip is 1, so an empty bank is not a low score — it is a
-    //  widget that cannot be played and has no way back. Only called where the
-    //  circle is already clear, so it can never top up mid-round and pay out on
-    //  a stake the player didn't have.
+    //  A bank below the smallest chip is unplayable, so the house tops it up.
+    //  Only called with the circle clear. See Blackjack.qml.
     function topUp(): bool {
         if (root.credits > 0) return false;
         root.credits = 200;
@@ -432,9 +395,7 @@ Scope {
         root.message = "BANK RESET";
     }
 
-    //  The opposite gesture: hand 200 back to the house and strike one rebuy
-    //  off the tally. Must leave money to play with — paying down to zero
-    //  would only trip the next top-up and put the rebuy straight back.
+    //  Hand 200 back and strike one rebuy off the tally. See Blackjack.qml.
     function payBack(): bool {
         if (root.rebuys < 1)     { root.message = "NO REBUYS TO PAY BACK";  return false; }
         if (root.credits <= 200) { root.message = "NEED 200 SPARE TO PAY BACK"; return false; }
@@ -519,9 +480,7 @@ Scope {
         for (let i = 0; i < root.betOrder.length; i++)
             counts[root.betOrder[i]] = (counts[root.betOrder[i]] || 0) + 1;
         const out = [];
-        //  Over the whole ladder rather than the current rack: a chip already
-        //  in the circle must keep being drawn even if the bankroll it bought
-        //  has since dropped below its denomination.
+        //  Over the whole ladder rather than the current rack. See Blackjack.qml.
         for (let i = root.chipLadder.length - 1; i >= 0; i--) {
             const d = root.chipLadder[i];
             if (counts[d]) out.push({ value: d, count: counts[d] });
@@ -674,15 +633,12 @@ Scope {
     //  the wait, and charging for it twice would show.
     //
     //  Only ever runs against a queue nobody is still adding to, because the
-    //  button is up by the time `dealing` is true. That is what keeps the
-    //  cadence honest: an earlier version drained the queue as the drag filled
-    //  it, and a timer that restarts on every claim never reaches its own
-    //  interval — it turned the field as fast as the hand moved.
+    //  button is up by the time `dealing` is true. A timer that restarts on
+    //  every claim never reaches its own interval, and turns the field as fast
+    //  as the hand moved.
     //
     //  A bone part way through drops the phase out of "picking", which stops
-    //  this and strands the rest of the queue; `finish` throws it away. The
-    //  boxes the player dragged over after the one that killed them were never
-    //  going to be turned.
+    //  this and strands the rest of the queue; `finish` throws it away.
     Timer {
         id: flipTimer
         interval: root.theme.flipMs
@@ -801,9 +757,8 @@ Scope {
                 ctx.fillStyle = chip.body;
                 ctx.fill();
 
-                //  Eight spots on 45° centres. Each is the wedge between the
-                //  rim and `stop`, which is why they read as cut out of the
-                //  edge rather than painted onto it.
+                //  Eight spots on 45° centres, cut out of the rim rather than
+                //  painted on. See Blackjack.qml.
                 const half = 9 * Math.PI / 180;
                 for (let i = 0; i < 8; i++) {
                     const a = i * Math.PI / 4;
@@ -821,9 +776,8 @@ Scope {
                 ctx.lineWidth = Math.max(1, r * 0.055);
                 ctx.stroke();
 
-                //  Selection rides the edge instead of adding a second circle
-                //  outside it, so picking a chip off the rack does not change
-                //  how much room the chip takes up.
+                //  Selection rides the edge rather than adding a second circle
+                //  outside it. See Blackjack.qml.
                 ctx.beginPath();
                 ctx.arc(cx, cy, rim, 0, 2 * Math.PI);
                 ctx.strokeStyle = chip.selected ? root.theme.fg
@@ -1195,9 +1149,8 @@ Scope {
     //  widget sets this and nothing else; the window follows.
     property bool open: false
 
-    //  Whether the window exists. Trails `open` by the length of the slide,
-    //  because a window destroyed the moment it is hidden has nothing left to
-    //  animate. The slide itself sets this back to false when it lands.
+    //  Whether the window exists. Trails `open` by the length of the slide, so
+    //  there is something left to animate. See Blackjack.qml.
     property bool showing: false
 
     onOpenChanged: if (root.open)
@@ -1226,10 +1179,8 @@ Scope {
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
             exclusionMode: ExclusionMode.Ignore
 
-            //  The bottom-right corner, and hard against the bottom edge — the
-            //  right-hand margin is a margin, but the bottom one is not. It is
-            //  part of the window, empty, sitting under the card: the room the
-            //  card slides down through on its way off the screen.
+            //  Hard against the bottom edge: that gap is not a margin, it is
+            //  the room the card slides down through. See Blackjack.qml.
             anchors.right: true
             anchors.bottom: true
             margins.right: root.theme.edgeRight
@@ -1237,10 +1188,8 @@ Scope {
             implicitWidth: frame.implicitWidth
             implicitHeight: frame.implicitHeight + root.theme.edgeBottom
 
-            //  1 is up, 0 is gone. The card's position is drawn from this
-            //  rather than the window being moved, so the layer surface is
-            //  laid out once and the compositor isn't resizing it sixty times
-            //  a second.
+            //  1 is up, 0 is gone. The card moves, not the window. See
+            //  Blackjack.qml.
             property real reveal: (root.open && win.entered) ? 1 : 0
 
             //  Off until the window has finished being built, so the first
@@ -1252,11 +1201,9 @@ Scope {
 
             Component.onCompleted: Qt.callLater(() => win.entered = true)
 
-            //  Landed at the bottom, and nothing asked for it back on the way
-            //  down: let go of the window. Deferred, since dropping `showing`
-            //  destroys this window and we are standing in one of its own
-            //  handlers; re-checked on the way out in case the deferral
-            //  straddled a re-open.
+            //  Landed at the bottom with nothing asking for it back: let go of
+            //  the window. Deferred, and re-checked on the way out. See
+            //  Blackjack.qml.
             onRevealChanged: if (win.reveal <= 0 && !root.open)
                 Qt.callLater(() => {
                     if (!root.open)
@@ -1270,9 +1217,8 @@ Scope {
                 }
             }
 
-            //  The window is taller than the card and the difference is
-            //  transparent, which is not the same as absent — unmasked it
-            //  would swallow clicks meant for whatever is underneath.
+            //  Transparent is not absent: unmasked, the window swallows clicks
+            //  meant for what is underneath. See Blackjack.qml.
             mask: Region {
                 y: frame.y
                 width: frame.width
@@ -1386,11 +1332,9 @@ Scope {
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 18
 
-                            //  Handing 200 back is a deliberate gesture, so it gets a
-                            //  button that says so rather than a hover trick on the
-                            //  counter. It sits there greyed out when the bank has
-                            //  nothing spare or there is nothing to pay off, and a
-                            //  click in that state still says why on the felt.
+                            //  A deliberate gesture, so it gets its own button,
+                            //  greyed out when it cannot be used. See
+                            //  Blackjack.qml.
                             Rectangle {
                                 id: paybackBtn
 

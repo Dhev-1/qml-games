@@ -10,11 +10,11 @@ bet.
 ## Run
 
 ```sh
-qs -p ~/cloon/widgames/rolt/roulette.qml
+qs -p ~/cloon/newdot/games/rolt/roulette.qml
 ```
 
 It opens as a normal 708×682 desktop window. It is not on a layer shell yet —
-that comes when it goes into [edge](../edge).
+see [Next](#next).
 
 **Closing quits it.** `esc`, the compositor's close and `ipc call roulette hide`
 all end the process rather than hiding the window, so a shut widget costs
@@ -84,7 +84,8 @@ reopening lands you back on the same number rather than on 200.
 
 The path comes from `Quickshell.statePath`, which hashes the *canonical* config
 path — so it is the same file whether the widget is launched as
-`rolt/roulette.qml` or as `edge/../widgames/rolt/roulette.qml`.
+`games/rolt/roulette.qml` or as `house/../games/rolt/roulette.qml`, which is
+how the pit launches it.
 
 Busting is not a dead end: an empty bank refills to 200 at the end of the round,
 since the smallest chip is 1 and a bank of nothing is a widget you cannot play.
@@ -94,7 +95,7 @@ since the smallest chip is 1 and a bank of nothing is a widget you cannot play.
 ## IPC
 
 ```sh
-qs -p ~/cloon/widgames/rolt/roulette.qml ipc call roulette <fn>
+qs -p ~/cloon/newdot/games/rolt/roulette.qml ipc call roulette <fn>
 ```
 
 | function        | effect                                        |
@@ -115,7 +116,7 @@ Spot ids are what `status` reports — `straight:17`, `corner:8-9-11-12`,
 `street:16-17-18`, `red:1-3-5-…`. So a whole round is scriptable:
 
 ```sh
-R="qs -p ~/cloon/widgames/rolt/roulette.qml ipc call roulette"
+R="qs -p ~/cloon/newdot/games/rolt/roulette.qml ipc call roulette"
 $R bet straight:17 25
 $R bet corner:8-9-11-12 5
 $R spin
@@ -124,7 +125,7 @@ $R spin
 `status` is also how you ask whether the widget is up at all: a reply means it
 is running, and `ipc call` exiting 255 with nothing on stdout means it is not.
 That single question is enough to drive a toggle button — no reply, start the
-process; a reply, send `hide`. Which is what the poker tab's service already
+process; a reply, send `hide`. Which is what the pit's service already
 does, minus the third case.
 
 (As with poker, `qs ipc call roulette show` is unreachable from the CLI anyway —
@@ -195,6 +196,6 @@ degree.
 
 ## Next
 
-Moving onto a layer shell for the edge bar. Everything below `frame` in
+Moving onto a layer shell for the bar's pit. Everything below `frame` in
 `roulette.qml` is self-contained, so that is a swap of the window block for
 poker's `PanelWindow` plus its `open`/`showing` slide, and nothing else.

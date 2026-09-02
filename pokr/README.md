@@ -8,7 +8,7 @@ Standard **9/6** pay table (the good one — 9× full house, 6× flush).
 ## Run
 
 ```sh
-qs -p ~/cloon/pokr/poker.qml
+qs -p ~/cloon/newdot/games/pokr/poker.qml
 ```
 
 It appears as a centered layer-shell overlay. Launching it shows it; after that,
@@ -32,10 +32,10 @@ click it (`keyboardFocus: OnDemand`), so it won't steal input while it sits idle
 Add to `hyprland.conf`:
 
 ```conf
-exec-once = qs -p ~/cloon/pokr/poker.qml
+exec-once = qs -p ~/cloon/newdot/games/pokr/poker.qml
 
 # toggle with SUPER+P
-bind = SUPER, P, exec, qs -p ~/cloon/pokr/poker.qml ipc call poker toggle
+bind = SUPER, P, exec, qs -p ~/cloon/newdot/games/pokr/poker.qml ipc call poker toggle
 
 # optional: blur behind it (the layer namespace is "poker")
 layerrule = blur, poker
@@ -48,7 +48,7 @@ once to tuck it away.
 ## IPC
 
 ```sh
-qs -p ~/cloon/pokr/poker.qml ipc call poker <fn>
+qs -p ~/cloon/newdot/games/pokr/poker.qml ipc call poker <fn>
 ```
 
 | function      | effect                                    |
@@ -65,13 +65,13 @@ qs -p ~/cloon/pokr/poker.qml ipc call poker <fn>
 Note that `show` is unreachable over the CLI — `qs ipc call poker show` is
 swallowed by the `qs ipc show` subcommand, which prints the interface and exits 0
 without calling anything. Read `visible` and send `toggle` instead; that is what
-the poker tab in [edge](../edge) does.
+the pit in [house](../../house/README.md) does.
 
 `status` is there so you can surface credits elsewhere — e.g. in waybar:
 
 ```json
 "custom/poker": {
-  "exec": "qs -p ~/cloon/pokr/poker.qml ipc call poker status | jq -r '\"\\(.credits)c\"'",
+  "exec": "qs -p ~/cloon/newdot/games/pokr/poker.qml ipc call poker status | jq -r '\"\\(.credits)c\"'",
   "interval": 5
 }
 ```

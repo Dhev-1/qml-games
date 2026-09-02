@@ -10,11 +10,11 @@ claimed; see [Tests](#tests).
 ## Run
 
 ```sh
-qs -p ~/cloon/widgames/bjak/blackjack.qml
+qs -p ~/cloon/newdot/games/bjak/blackjack.qml
 ```
 
 It opens as a normal 726×598 desktop window. It is not on a layer shell yet —
-that comes when it goes into [edge](../edge).
+see [Next](#next).
 
 **Closing quits it.** `esc`, the compositor's close and `ipc call blackjack hide`
 all end the process rather than hiding the window, so a shut widget costs
@@ -132,7 +132,8 @@ reopening lands you back on the same number rather than on 200.
 
 The path comes from `Quickshell.statePath`, which hashes the *canonical* config
 path — so it is the same file whether the widget is launched as
-`bjak/blackjack.qml` or as `edge/../widgames/bjak/blackjack.qml`.
+`games/bjak/blackjack.qml` or as `house/../games/bjak/blackjack.qml`, which is
+how the pit launches it.
 
 Busting is not a dead end: an empty bank refills to 200 at the end of the round,
 since the smallest chip is 1 and a bank of nothing is a widget you cannot play.
@@ -165,7 +166,7 @@ where it is even though nothing in here counts it for you.
 ## IPC
 
 ```sh
-qs -p ~/cloon/widgames/bjak/blackjack.qml ipc call blackjack <fn>
+qs -p ~/cloon/newdot/games/bjak/blackjack.qml ipc call blackjack <fn>
 ```
 
 | function        | effect                                        |
@@ -189,7 +190,7 @@ qs -p ~/cloon/widgames/bjak/blackjack.qml ipc call blackjack <fn>
 So a whole hand is scriptable:
 
 ```sh
-B="qs -p ~/cloon/widgames/bjak/blackjack.qml ipc call blackjack"
+B="qs -p ~/cloon/newdot/games/bjak/blackjack.qml ipc call blackjack"
 $B bet 25
 $B deal
 $B status | jq -r '.hands[0].cards | join(" ")'
@@ -204,7 +205,7 @@ would be a cheat with a JSON interface.
 It is also how you ask whether the widget is up at all: a reply means it is
 running, and `ipc call` exiting 255 with nothing on stdout means it is not. That
 single question is enough to drive a toggle button — no reply, start the
-process; a reply, send `hide`. Which is what the poker tab's service already
+process; a reply, send `hide`. Which is what the pit's service already
 does, minus the third case.
 
 (As with poker and roulette, `qs ipc call blackjack show` is unreachable from
@@ -300,6 +301,6 @@ that can be told what to deal itself is not a widget you can lose money on.
 
 ## Next
 
-Moving onto a layer shell for the edge bar. Everything below `frame` in
+Moving onto a layer shell for the bar's pit. Everything below `frame` in
 `blackjack.qml` is self-contained, so that is a swap of the window block for
 poker's `PanelWindow` plus its `open`/`showing` slide, and nothing else.

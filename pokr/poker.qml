@@ -3,12 +3,8 @@
 //  run:     qs -p ~/cloon/widgames/pokr/poker.qml
 //
 //  The game is Poker.qml next door, and everything worth reading is in there.
-//  This exists so it can also be a component: edge instantiates Poker directly,
-//  inside its own ShellRoot, and a config can only have one of those.
-//
-//  `standalone` is what keeps closing it a quit here and only a hide in edge —
-//  this process has nothing to do once the widget is down, and the shell has
-//  everything else.
+//  This wrapper exists so the game can also be a component — see blackjack.qml
+//  for that and for what `standalone` is doing.
 
 import Quickshell
 

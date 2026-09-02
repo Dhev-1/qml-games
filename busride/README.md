@@ -5,13 +5,13 @@ call wrong and the ride is over and the stake is gone. Get it right and the
 stake rides at a bigger multiplier — which you may take at any point, or push.
 
 ```
-qs -p ~/cloon/widgames/busride/ridethebus.qml
+qs -p ~/cloon/newdot/games/busride/ridethebus.qml
 ```
 
 The game is `RideTheBus.qml`. `ridethebus.qml` is a four-line wrapper that puts
-it in a `ShellRoot` so it can run as its own process; edge instantiates
-`RideTheBus` directly, so the shell and the standalone widget are the same code
-rather than two copies of it.
+it in a `ShellRoot` so it can run as its own process; a shell that embeds it
+instantiates `RideTheBus` directly, so the shell and the standalone widget are
+the same code rather than two copies of it.
 
 ## The rungs
 
