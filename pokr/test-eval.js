@@ -1,7 +1,8 @@
 // Extracts evaluate() straight out of poker.qml and enumerates all C(52,5)
 // hands, comparing category counts against the known exact distribution.
 const fs = require('fs');
-const src = fs.readFileSync('/home/delta/cloon/pokr/poker.qml', 'utf8');
+const path = require('path');
+const src = fs.readFileSync(path.join(__dirname, 'Poker.qml'), 'utf8');
 
 const start = src.indexOf('function evaluate(h) {');
 if (start < 0) throw new Error('evaluate() not found in poker.qml');
