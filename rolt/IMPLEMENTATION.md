@@ -310,20 +310,8 @@ render as stacked discs with a count badge past two.
 **Keys** — `1`–`4` denomination · `space` spin · `u` undo · `c` clear · `r`
 rebet · `esc` quit.
 
-**IPC** — `target: "roulette"`, mirroring poker's surface:
-
-| function | effect |
-|---|---|
-| `toggle` / `hide` | quit the process |
-| `show` | no-op |
-| `spin` | spin, if there are bets down |
-| `clear` / `rebet` / `undo` | bet management |
-| `reset` | bank back to 200 |
-| `bet <id> <n>` | stake `n` on a spot, ignoring the chip rack |
-| `chip <n>` | select a denomination |
-| `status` | JSON: visible, credits, wagered, chip, phase, lastNumber, lastWin, history, bets |
-
-`bet` and `chip` were not in the original plan; they make a whole round
+**IPC** — `target: "roulette"`, mirroring poker's surface; the function table is
+in the [README](README.md#ipc). `bet` and `chip` were not in the original plan; they make a whole round
 scriptable, which is how the spin and the bank got exercised end-to-end without
 a human clicking, and they are what the edge bar will drive. Spot ids are the
 ones `status` reports, so the two halves round-trip.
@@ -370,28 +358,7 @@ merely plausible. The whole spin exists to arrive somewhere specific, and 2,220
 headless spins say it always does — worst miss under a millionth of a degree,
 worst handoff kick 2.9%, and the crossing found on 2,220 of 2,220.
 
-Actual output:
-
-```
-wheel order          37 pockets     ok
-red/black split      18 / 18        ok
-spot counts          157 spots      ok
-spot shapes          numbers valid  ok
-spot ids             unique         ok
-spot spacing         min 22.0px     ok
-outside bets         sets correct   ok
-dozens/columns       partition 1-36 ok
-payout invariant     157 spots      ok
-expected return      5652/5809      ok
-mixed board          23 bets        ok
-spin lands           2220 spins     ok
-ball seats           in the pocket  ok
-handoff smooth       2.9% max       ok
-spin length          5.0-5.6s       ok
-crossing found       2220/2220      ok
-------------------------------------------------
-house edge: 2.70%  (expect 2.70%)
-```
+Actual output is in the [README](README.md#tests).
 
 ---
 

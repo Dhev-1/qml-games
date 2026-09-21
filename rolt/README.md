@@ -72,25 +72,11 @@ About 5 seconds, and you cannot read the result until the last of it.
 
 ## Credits
 
-Start at 200, separate from the poker bank, and kept across closings in
-
-```
-~/.local/state/quickshell/by-shell/<id>/bank.json
-```
-
-which is the one thing in the widget that touches disk. It is written whenever
-the figure moves and read before the first frame, so closing mid-session and
-reopening lands you back on the same number rather than on 200.
-
-The path comes from `Quickshell.statePath`, which hashes the *canonical* config
-path — so it is the same file whether the widget is launched as
-`games/rolt/roulette.qml` or as `house/../games/rolt/roulette.qml`, which is
-how the pit launches it.
-
-Busting is not a dead end: an empty bank refills to 200 at the end of the round,
-since the smallest chip is 1 and a bank of nothing is a widget you cannot play.
-`ipc call roulette reset` puts it back to 200 deliberately, and deleting
-`bank.json` is the same thing.
+Start at 200, separate from the other games' banks, and kept across closings in
+`bank.json` under Quickshell's state dir. Busting refills to 200 at the end of
+the round; `ipc call roulette reset` or deleting `bank.json` does it on purpose.
+The full account — where the file lives, when it is written, why the path is
+stable however the widget is launched — is in [bjak's Credits](../bjak/README.md#credits).
 
 ## IPC
 
@@ -122,15 +108,8 @@ $R bet corner:8-9-11-12 5
 $R spin
 ```
 
-`status` is also how you ask whether the widget is up at all: a reply means it
-is running, and `ipc call` exiting 255 with nothing on stdout means it is not.
-That single question is enough to drive a toggle button — no reply, start the
-process; a reply, send `hide`. Which is what the pit's service already
-does, minus the third case.
-
-(As with poker, `qs ipc call roulette show` is unreachable from the CLI anyway —
-the `qs ipc show` subcommand swallows it, prints the interface and exits 0
-without calling anything. It is a no-op here regardless.)
+`status` doubles as the liveness check, and `show` is unreachable from the CLI
+anyway — both explained in [bjak's IPC section](../bjak/README.md#ipc).
 
 ## Theming
 

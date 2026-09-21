@@ -58,9 +58,8 @@ everywhere except a couple of its own typos, which the tests document.
 
 The bank starts at 200, persists in
 `~/.local/state/quickshell/by-shell/<id>/bank.json`, and refills itself (and
-counts the rebuy) when you lose the lot. Hit **PAY BACK** beside the tally (or `payback`
-over IPC) to hand 200 back and strike one rebuy off the tally — allowed only
-while the bank holds more than 200.
+counts the rebuy) when you lose the lot. **PAY BACK** and the rebuy tally work
+as in [Ride the Bus](../busride/README.md#the-bank).
 
 ## Tests
 
